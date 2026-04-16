@@ -681,7 +681,6 @@ def test_mem_entry_defaults(R, c):
     R.check("mementry_source_text_default", me.source_text == "")
     R.check("mementry_content_token_ids_default", me.content_token_ids == [])
     R.check("mementry_semantic_emb_default", me.semantic_emb is None)
-    R.check("mementry_wte_centroid_default", me.content_wte_centroid is None)
     R.check("mementry_expanded_default", me.expanded_content_ids == [])
 
 
@@ -875,12 +874,10 @@ def test_amm_store_and_retrieve(m, c, R):
     m1 = m.amm.store_mem(h1, 1.0, training_mode=True, source_text="test1",
                           content_token_ids=[100, 200],
                           content_semantic_emb=torch.randn(c.d_LLM, device=dev),
-                          content_wte_centroid=torch.randn(c.d_LLM, device=dev),
                           expanded_content_ids=[100, 200, 300])
     R.check("amm_store_returns_entry", isinstance(m1, MemEntry))
     R.check("amm_store_source_text", m1.source_text == "test1")
     R.check("amm_store_content_ids", len(m1.content_token_ids) > 0)
-    R.check("amm_store_wte_centroid", m1.content_wte_centroid is not None)
     R.check("amm_store_expanded_ids", len(m1.expanded_content_ids) > 0)
     R.check("amm_store_semantic_emb", m1.semantic_emb is not None)
     h2 = torch.randn(c.d_LLM, device=dev)
@@ -964,26 +961,23 @@ def test_amm_empty_retrieve(m, c, R):
     _reset(m)
 
 
-def test_amm_retrieve_with_semantic_and_wte(m, c, R):
-    """Retrieve should use semantic embedding and WTE centroid when provided."""
-    print("\n── 56. AMM retrieve with semantic+WTE ──")
+def test_amm_retrieve_with_semantic(m, c, R):
+    """Retrieve should use semantic embedding when provided."""
+    print("\n── 56. AMM retrieve with semantic ──")
     _reset(m)
     dev = _device(m)
     for i in range(3):
         h = torch.randn(c.d_LLM, device=dev)
         sem = torch.randn(c.d_LLM, device=dev)
-        wte_c = torch.randn(c.d_LLM, device=dev)
         m.amm.store_mem(h, 1.0, training_mode=True,
-                        content_semantic_emb=sem, content_wte_centroid=wte_c)
+                        content_semantic_emb=sem)
     xq = torch.randn(1, c.d_M, device=dev)
     fq = torch.randn(1, c.d_F, device=dev)
     q_sem = torch.randn(1, c.d_LLM, device=dev)
-    q_wte = torch.randn(1, c.d_LLM, device=dev)
     fibers, mask, fs, diag = m.amm.retrieve_multi(
-        xq, fq, query_semantic_emb=q_sem, query_wte_centroid=q_wte)
-    R.check("amm_ret_sem_wte_finite", fibers.isfinite().all().item())
+        xq, fq, query_semantic_emb=q_sem)
+    R.check("amm_ret_sem_finite", fibers.isfinite().all().item())
     R.check("amm_ret_sem_sim_set", diag.top_sem_sim != 0.0 or True)
-    R.check("amm_ret_wte_sim_set", diag.top_wte_sim != 0.0 or True)
     _reset(m)
 
 
@@ -1015,7 +1009,6 @@ def test_write_single(m, c, R):
     R.check("write_entry_has_text", len(entry.source_text) > 0)
     R.check("write_entry_has_sem_emb", entry.semantic_emb is not None)
     R.check("write_entry_has_content_ids", len(entry.content_token_ids) > 0)
-    R.check("write_entry_has_wte_centroid", entry.content_wte_centroid is not None)
     R.check("write_entry_has_expanded_ids", len(entry.expanded_content_ids) > 0)
     R.check("write_entry_expanded_superset",
             set(entry.content_token_ids).issubset(set(entry.expanded_content_ids)))
@@ -1274,23 +1267,6 @@ def test_content_semantic_emb_cross_domain(m, c, R):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 30. WTE centroid computation
-# ═══════════════════════════════════════════════════════════════════
-def test_wte_centroid(m, c, R):
-    """WTE centroid should be mean of token embeddings."""
-    print("\n── 73. WTE centroid computation ──")
-    wte = m.llm.transformer.wte.weight.detach()
-    content_ids = [100, 200, 300]
-    centroid = m._compute_wte_centroid(content_ids)
-    R.check("wte_centroid_not_none", centroid is not None)
-    expected = wte[content_ids].mean(0)
-    diff = (centroid - expected).abs().max().item()
-    R.check("wte_centroid_correct", diff < 1e-5, f"diff={diff:.2e}")
-    empty = m._compute_wte_centroid([])
-    R.check("wte_centroid_empty_none", empty is None)
-
-
-# ═══════════════════════════════════════════════════════════════════
 # 31. Forward pass (fwd)
 # ═══════════════════════════════════════════════════════════════════
 def test_fwd_basic(m, c, R):
@@ -1426,8 +1402,7 @@ def test_save_load_memory(m, c, R):
     n_before = len(m.amm.tree.store)
     entries_before = {mid: (e.source_text, e.surprise, e.cnt,
                             len(e.content_token_ids),
-                            e.semantic_emb is not None,
-                            e.content_wte_centroid is not None)
+                            e.semantic_emb is not None)
                       for mid, e in m.amm.tree.store.items()}
     with tempfile.NamedTemporaryFile(suffix='.pt', delete=False) as f:
         path = f.name
@@ -1438,14 +1413,12 @@ def test_save_load_memory(m, c, R):
         R.check("reset_after_save", len(m.amm.tree.store) == 0)
         m.load_memory(path)
         R.check("load_memory_count", len(m.amm.tree.store) == n_before)
-        for mid, (text, surp, cnt, n_ct, has_sem, has_wte) in entries_before.items():
+        for mid, (text, surp, cnt, n_ct, has_sem) in entries_before.items():
             e = m.amm.tree.store.get(mid)
             if e:
                 R.check(f"load_mem_{mid}_text", e.source_text == text)
                 R.check(f"load_mem_{mid}_surprise", abs(e.surprise - surp) < 1e-5)
                 R.check(f"load_mem_{mid}_sem", (e.semantic_emb is not None) == has_sem)
-                R.check(f"load_mem_{mid}_wte",
-                        (e.content_wte_centroid is not None) == has_wte)
         errs = m.amm.tree.verify_consistency()
         R.check("load_memory_consistent", len(errs) == 0, str(errs))
     finally:
@@ -1467,9 +1440,6 @@ def test_refresh_memories(m, c, R):
         n_refreshed = m._refresh_all_memories()
     R.check("refresh_count", n_refreshed > 0)
     R.check("refresh_has_entries", len(m.amm.tree.store) > 0)
-    all_wte = all(e.content_wte_centroid is not None
-                  for e in m.amm.tree.store.values())
-    R.check("refresh_wte_preserved", all_wte)
     errs = m.amm.tree.verify_consistency()
     R.check("refresh_consistent", len(errs) == 0, str(errs))
     _reset(m)
@@ -2025,15 +1995,12 @@ def test_retrieval_diag_fields(m, c, R):
     for i in range(5):
         h = torch.randn(c.d_LLM, device=dev)
         m.amm.store_mem(h, 1.0, training_mode=True, source_text=f"entry_{i}",
-                        content_semantic_emb=torch.randn(c.d_LLM, device=dev),
-                        content_wte_centroid=torch.randn(c.d_LLM, device=dev))
+                        content_semantic_emb=torch.randn(c.d_LLM, device=dev))
     xq = torch.randn(1, c.d_M, device=dev)
     fq = torch.randn(1, c.d_F, device=dev)
     q_sem = torch.randn(1, c.d_LLM, device=dev)
-    q_wte = torch.randn(1, c.d_LLM, device=dev)
     _, _, _, diag = m.amm.retrieve_multi(xq, fq,
-                                          query_semantic_emb=q_sem,
-                                          query_wte_centroid=q_wte)
+                                          query_semantic_emb=q_sem)
     R.check("diag_recall_count", diag.recall_count > 0)
     R.check("diag_fiber_summary_norm", diag.fiber_summary_norm > 0)
     R.check("diag_batch_mem_weights", len(diag.batch_mem_weights) == 1)
@@ -2098,8 +2065,7 @@ def test_many_memories(m, c, R):
         m.amm.store_mem(h, float(i) * 0.1, training_mode=True,
                         source_text=f"memory_{i}",
                         content_token_ids=[100 + i, 200 + i],
-                        content_semantic_emb=torch.randn(c.d_LLM, device=dev),
-                        content_wte_centroid=torch.randn(c.d_LLM, device=dev))
+                        content_semantic_emb=torch.randn(c.d_LLM, device=dev))
     R.check("many_mem_stored", len(m.amm.tree.store) > 0)
     errs = m.amm.tree.verify_consistency()
     R.check("many_mem_consistent", len(errs) == 0, str(errs))
@@ -2554,7 +2520,6 @@ def main():
     test_content_expansion(m, c, R)
     test_content_semantic_emb(m, c, R)
     test_content_semantic_emb_cross_domain(m, c, R)
-    test_wte_centroid(m, c, R)
 
     # === DirectionTree ===
     test_tree_insert_retrieve(R, c)
@@ -2579,7 +2544,7 @@ def main():
     test_amm_decay(m, c, R)
     test_amm_store_update_existing(m, c, R)
     test_amm_empty_retrieve(m, c, R)
-    test_amm_retrieve_with_semantic_and_wte(m, c, R)
+    test_amm_retrieve_with_semantic(m, c, R)
     test_amm_surprise_proxy(m, c, R)
     test_midpoint_distance(m, c, R)
     test_flat_scan_threshold(m, c, R)
