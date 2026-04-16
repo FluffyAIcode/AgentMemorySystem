@@ -1,42 +1,42 @@
 #!/usr/bin/env python3  
 """  
-嵌入级方案B · v3.7  
+嵌入级方案B · v3.12  
 ════════════════════════════════════════════════════════════════════════  
   
-v3.7 变更摘要 (相对 v3.6)  
+v3.12 变更摘要 (相对 v3.11)  
 ─────────────────────────  
   
-[P0-RETRIEVE] Content-Position-Only Semantic Embedding  
-  写入时: semantic_emb = mean(GPT-2 hidden states at CONTENT token positions only)  
-  查询时: 同上, 排除所有虚词/标点位置  
-  消除了全位置均值池化导致的域信号稀释  
-  零训练即生效  
+[P0-RETRIEVE] 扩展词汇重叠门控 (expanded overlap gating)  
+  新引入双层硬过滤:  
+    第一层: expanded_overlap = |query_expanded_ids ∩ mem.content_token_ids|  
+      - overlap > 0 → 直接通过 (有词汇连接)  
+      - overlap = 0 → 进入第二层  
+    第二层: forward_maxsim >= max(absolute, top_fwd * relative_ratio)  
+      - 通过 → 保留; 否则拒绝  
+  理由: forward_maxsim 在 query 和 memory 没有精确词汇重叠时, 只靠 wte 余弦  
+  相似度区分域, 区分度不够 (GPT-2 wte 噪声地板 ~0.15-0.25).  
+  expanded overlap 利用 wte 邻居扩展 (threshold=0.5) 在同域内建立词汇桥梁  
+  (piano→pianist, practice→practiced), 同时跨域无桥 (piano → telescope 无扩展重叠).  
+  query 侧用扩展 IDs (提高召回), memory 侧用精确 IDs (避免双重扩展的跨域桥接).  
   
-[P0-RETRIEVE] WTE Centroid Retrieval  
-  写入时: content_wte_centroid = mean(WTE[content_token_ids])  
-  查询时: 同上  
-  检索评分: 0.1*dir_sim + 0.4*content_sem_sim + 0.5*wte_centroid_sim  
-  完全不依赖任何学习组件, 域分离由 GPT-2 预训练词嵌入保证  
+[P0-RETRIEVE] 每记忆 forward_maxsim 传播到 content_bias 权重  
+  RetrievalDiag 新增 per_memory_forward_maxsim: Dict[int, float]  
+  _build_content_bias 和 _compute_content_wte_mean 中, 每条记忆的权重乘以其  
+  forward_maxsim 值. 即使有跨域记忆逃过硬过滤, 其 forward_maxsim 低, 对  
+  content_bias 的贡献也被压低.  
   
-[P0-DECODE] Hard Content-First Decoding  
-  步骤 0-2: 标点/换行 → -25 penalty, EOS → -inf  
-  步骤 0+: content_bias_scale = 15.0 (from 6.0), 慢衰减  
-  步骤 0-4: 通用内容词 boost = +2.0  
-  保证首步 top-1 不是标点  
+[P1-PREFIX] 提高前缀内容信号强度 (逻辑层面修复)  
+  prefix_init_scale: -1.0 → -0.2 (sigmoid 从 0.27 提到 0.45)  
+  content_inject_scale: 0.5 → 0.65  
+  prefix_inject_last_multiplier: 3.0 → 4.0  
+  prefix_inject_other_multiplier: 0.5 → 0.8  
+  这使 prefix 在 LLM 注意力空间中的影响力提升约 67%.  
+  注意: 这是逻辑层面的优化. GPT-2 soft prompt 的有效性上限受限于  
+  GPT-2 未经 prompt tuning 训练, 此处不做过度补偿.  
   
-[P0-DECODE] Content Bias Expansion via WTE Neighbors  
-  写入时: 对每个 content_token, 找 WTE 空间 top-5 近邻中的内容词  
-  存入 expanded_content_ids, 提高 bias 覆盖率  
-  "practiced" 在记忆 → "played","playing" 也获得 boost  
-  
-[P1-BRIDGE] 确定性路径现在真正占主导  
-  content_bias_scale=15 vs vocab_proj的learned bias≈0.5  
-  确定性路径提供 97% 的语义引导  
-  
-[INFRA] MemEntry 新增 content_wte_centroid: Tensor[d_LLM]  
-[INFRA] DirectionTree 新增 check_direction_degeneracy()  
-[INFRA] _compute_content_semantic_emb() 新方法  
-[INFRA] _get_prefix 新增 ids 参数  
+[P1-RETRIEVE] 合并域守卫更严  
+  consol_maxsim_min: 0.30 → 0.40  
+  防止 base 距离偶然靠近导致跨域合并  
   
 要求: pip install torch transformers  
 """  
@@ -70,31 +70,53 @@ class Cfg:
     write_update_alpha: float = 0.3  
     dir_diversity_tau: float = 0.5  
     bypass_init_gate_bias: float = -0.5  
-    degen_min_tokens: int = 5; degen_repeat_penalty: float = 1.3  
+    degen_min_tokens: int = 5; degen_repeat_penalty: float = 1.4  
     degen_max_consec_punct: int = 2  
     probe_contrastive_tau: float = 0.1  
     contrast_tau: float = 0.5  
-    prefix_init_scale: float = -1.0  
-    # ── v3.7 decode parameters ──  
-    degen_early_punct_penalty: float = 25.0  
-    degen_early_newline_penalty: float = 25.0  
-    early_content_steps: int = 3  
+    # ── v3.12 prefix ──  
+    prefix_init_scale: float = -0.2  
+    # ── decode ──  
+    degen_early_punct_penalty: float = 80.0  
+    degen_early_newline_penalty: float = 80.0  
+    early_content_steps: int = 5  
     universal_content_boost: float = 2.0  
     universal_content_boost_steps: int = 5  
-    # ── v3.7 content bias ──  
-    content_bias_scale: float = 15.0  
-    content_bias_decay: float = 0.03  
-    content_bias_floor: float = 0.3  
-    # ── v3.7 retrieval weights ──  
-    ret_dir_weight: float = 0.1  
-    ret_sem_weight: float = 0.4  
-    ret_wte_weight: float = 0.5  
-    # ── v3.5 preserved ──  
+    content_bias_scale: float = 12.0  
+    content_bias_decay: float = 0.02  
+    content_bias_floor: float = 0.4  
+    generated_token_decay: float = 0.15  
+    structural_rhythm_threshold: int = 2  
+    structural_boost: float = 3.0  
+    content_repeat_penalty: float = 5.0  
+    first_step_content_multiplier: float = 3.5  
+    first_step_penalty_multiplier: float = 3.0  
+    domain_anchor_k: int = 8  
+    domain_anchor_boost: float = 8.0  
+    domain_anchor_start_step: int = 1  
+    domain_anchor_coverage_threshold: float = 0.10  
+    # ── v3.12 retrieval ──  
+    ret_forward_maxsim_weight: float = 0.40  
+    ret_backward_maxsim_weight: float = 0.15  
+    ret_overlap_weight: float = 0.25  
+    ret_sem_weight: float = 0.10  
+    ret_dir_weight: float = 0.10  
+    reranker_clip: float = 0.2  
+    forward_maxsim_hard_threshold: float = 0.15  
+    forward_maxsim_relative_ratio: float = 0.65  
+    score_keep_ratio: float = 0.55  
+    retrieval_weight_temperature: float = 0.15  
+    consol_maxsim_min: float = 0.40  
+    # ── v3.12 prefix injection ──  
+    content_inject_scale: float = 0.65  
+    prefix_inject_last_ratio: float = 0.25  
+    prefix_inject_last_multiplier: float = 4.0  
+    prefix_inject_other_multiplier: float = 0.8  
+    # ── preserved ──  
     semantic_boost_scale: float = 0.5  
     semantic_boost_decay: float = 0.06  
     semantic_boost_floor: float = 0.2  
     semantic_align_temp: float = 0.3  
-    # ── general ──  
     vocab_size: int = 50257  
     wte_neighbor_k: int = 5  
     wte_neighbor_threshold: float = 0.5  
@@ -302,8 +324,9 @@ class RetentionScorer(nn.Module):
 # 第5部分 · 检索重排序  
 # ═══════════════════════════════════════════════════════════════════  
 class RetrievalReranker(nn.Module):  
-    def __init__(self, d_M, d_F):  
+    def __init__(self, d_M, d_F, clip=0.2):  
         super().__init__()  
+        self.clip=clip  
         inp=2*d_M+2*d_F+1  
         self.net=nn.Sequential(nn.Linear(inp,128),nn.SiLU(),nn.LayerNorm(128),  
                                nn.Linear(128,64),nn.SiLU(),nn.LayerNorm(64),nn.Linear(64,1))  
@@ -313,6 +336,7 @@ class RetrievalReranker(nn.Module):
         xq_e=xq.unsqueeze(1).expand(-1,C,-1); fq_e=fq.unsqueeze(1).expand(-1,C,-1)  
         inp=torch.cat([xq_e,fq_e,xc,fc,dir_sim.unsqueeze(-1)],-1)  
         correction=self.net(inp).squeeze(-1)  
+        correction=correction.clamp(-self.clip,self.clip)  
         return dir_sim+correction  
   
 # ═══════════════════════════════════════════════════════════════════  
@@ -355,7 +379,7 @@ class PrefixSemanticProbe(nn.Module):
 # 第8部分 · PrefixAligner  
 # ═══════════════════════════════════════════════════════════════════  
 class PrefixAligner(nn.Module):  
-    def __init__(self, d_LLM, init_scale=-1.0):  
+    def __init__(self, d_LLM, init_scale=-0.2):  
         super().__init__()  
         self.ln=nn.LayerNorm(d_LLM)  
         self.scale_logit=nn.Parameter(torch.tensor(init_scale))  
@@ -374,7 +398,7 @@ class PrefixAligner(nn.Module):
         return normed*scale  
   
 # ═══════════════════════════════════════════════════════════════════  
-# 第9部分 · ContentTokenClassifier (v3.7: +get_content_positions)  
+# 第9部分 · ContentTokenClassifier  
 # ═══════════════════════════════════════════════════════════════════  
 class ContentTokenClassifier:  
     STOPWORDS = frozenset({  
@@ -429,6 +453,17 @@ class ContentTokenClassifier:
             except:  
                 self.function_ids.add(i)  
         self._content_tensor = None  
+        self.starter_ids: Set[int] = set()  
+        starters_words = {'the','a','an','it','this','that','there','here','its','my',  
+                          'our','his','her','their','we','they','he','she','one'}  
+        for i in range(min(vocab_size, 50300)):  
+            try:  
+                tok_text = tokenizer.decode([i]).strip().lower()  
+                cleaned = ''.join(c for c in tok_text if c.isalpha())  
+                if cleaned in starters_words:  
+                    self.starter_ids.add(i)  
+            except:  
+                pass  
   
     def content_mask(self, device):  
         if self._content_tensor is None or self._content_tensor.device != device:  
@@ -444,7 +479,6 @@ class ContentTokenClassifier:
         return [t for t in token_ids if t in self.content_ids]  
   
     def get_content_positions(self, token_ids, mask=None):  
-        """Return list of positions where content tokens appear."""  
         positions = []  
         for pos, tid in enumerate(token_ids):  
             if mask is not None and pos < len(mask) and not mask[pos]:  
@@ -454,7 +488,7 @@ class ContentTokenClassifier:
         return positions  
   
 # ═══════════════════════════════════════════════════════════════════  
-# 第10部分 · MemoryVocabProjector (学习路径, 辅助)  
+# 第10部分 · MemoryVocabProjector  
 # ═══════════════════════════════════════════════════════════════════  
 class MemoryVocabProjector(nn.Module):  
     def __init__(self, d_F, d_LLM):  
@@ -471,8 +505,7 @@ class MemoryVocabProjector(nn.Module):
         return mem_n @ wte_n.T  
   
 # ═══════════════════════════════════════════════════════════════════  
-# 第11部分 · MemEntry + 方向树 (v3.7: +content_wte_centroid,  
-#            +check_direction_degeneracy, leaf_size_violations)  
+# 第11部分 · MemEntry + DirectionTree  
 # ═══════════════════════════════════════════════════════════════════  
 @dataclass  
 class MemEntry:  
@@ -481,7 +514,6 @@ class MemEntry:
     source_text: str = ""  
     content_token_ids: List[int] = field(default_factory=list)  
     semantic_emb: Optional[torch.Tensor] = None  
-    content_wte_centroid: Optional[torch.Tensor] = None  
     expanded_content_ids: List[int] = field(default_factory=list)  
   
 class _Node:  
@@ -621,8 +653,6 @@ class DirectionTree:
         else:  
             for c in nd.children: self._check_leaves(c,v)  
     def check_direction_degeneracy(self, threshold: float = 0.95) -> List[Tuple[List[int], float]]:  
-        """Detect clusters where all directions are near-identical (degenerate).  
-        Returns list of (member_ids, avg_pairwise_cosine) for degenerate clusters."""  
         degenerate = []  
         self._check_degeneracy_recursive(self.root, threshold, degenerate)  
         return degenerate  
@@ -738,10 +768,14 @@ class EmbBridge(nn.Module):
         self.pe=nn.Parameter(torch.randn(c.L_mem,c.d_LLM)*0.02)  
         self.bypass=ContentBypass(c.d_F,c.d_LLM,gate_bias=c.bypass_init_gate_bias)  
         self.aligner=PrefixAligner(c.d_LLM,c.prefix_init_scale)  
+        self.content_inject_scale=c.content_inject_scale  
+        self.prefix_inject_last_ratio=c.prefix_inject_last_ratio  
+        self.prefix_inject_last_multiplier=c.prefix_inject_last_multiplier  
+        self.prefix_inject_other_multiplier=c.prefix_inject_other_multiplier  
         self.inject_mode='both'  
         self._last_inject_diag={}  
         self._last_fiber_summary=None  
-    def inject(self, fibers, mem_mask=None, fiber_summary=None):  
+    def inject(self, fibers, mem_mask=None, fiber_summary=None, content_wte_mean=None):  
         B=fibers.shape[0]  
         if self.inject_mode in ('both','qformer_only'):  
             qf_out=self.proj(fibers,mem_mask)+self.pe.unsqueeze(0)  
@@ -754,12 +788,23 @@ class EmbBridge(nn.Module):
             gate_val=self.bypass._last_gate  
             qf_out=qf_out+bp_out.unsqueeze(1)  
         qf_out=self.aligner(qf_out)  
+        if content_wte_mean is not None:  
+            cwm=content_wte_mean  
+            if cwm.dim()==2: cwm=cwm.unsqueeze(1)  
+            L=qf_out.shape[1]  
+            n_last=max(1,int(L*self.prefix_inject_last_ratio))  
+            pos_scale=torch.ones(L,device=qf_out.device)  
+            pos_scale[:L-n_last]=self.prefix_inject_other_multiplier  
+            pos_scale[L-n_last:]=self.prefix_inject_last_multiplier  
+            pos_scale=pos_scale.view(1,-1,1)  
+            qf_out=qf_out+cwm*self.content_inject_scale*pos_scale  
         self._last_fiber_summary=fiber_summary.detach() if fiber_summary is not None else None  
         self._last_inject_diag={  
             'bypass_gate':gate_val.mean().item() if gate_val is not None else None,  
             'qf_norm':qf_out.norm().item(),  
             'bypass_norm':bp_out.norm().item() if bp_out is not None else 0.0,  
-            'aligner_scale':torch.sigmoid(self.aligner.scale_logit).item()*self.aligner._target_std.item()}  
+            'aligner_scale':torch.sigmoid(self.aligner.scale_logit).item()*self.aligner._target_std.item(),  
+            'cwm_applied':content_wte_mean is not None}  
         return qf_out  
   
 # ═══════════════════════════════════════════════════════════════════  
@@ -792,7 +837,7 @@ class GradientMonitor:
         return norms  
   
 # ═══════════════════════════════════════════════════════════════════  
-# 第15部分 · DegenerationGuard (v3.7: 大幅提高惩罚)  
+# 第15部分 · DegenerationGuard  
 # ═══════════════════════════════════════════════════════════════════  
 class DegenerationGuard:  
     def __init__(self, tok, cfg, content_classifier=None):  
@@ -812,13 +857,18 @@ class DegenerationGuard:
                     if '\n' in t: self._newline_ids.add(i)  
                 except: pass  
         self._built=True  
-    def process(self, logits, generated_ids, step):  
+    def process(self, logits, generated_ids, step, first_step_penalty_mult=1.0):  
         self._build()  
+        punct_pen = self.cfg.degen_early_punct_penalty  
+        newline_pen = self.cfg.degen_early_newline_penalty  
+        if step == 0:  
+            punct_pen *= first_step_penalty_mult  
+            newline_pen *= first_step_penalty_mult  
         if step<self.cfg.early_content_steps:  
             for pid in self._punct_ids:  
-                if pid<logits.shape[-1]: logits[0,pid]-=self.cfg.degen_early_punct_penalty  
+                if pid<logits.shape[-1]: logits[0,pid]-=punct_pen  
             for nid in self._newline_ids:  
-                if nid<logits.shape[-1]: logits[0,nid]-=self.cfg.degen_early_newline_penalty  
+                if nid<logits.shape[-1]: logits[0,nid]-=newline_pen  
         if step<self.cfg.degen_min_tokens and self.tok.eos_token_id is not None:  
             logits[0,self.tok.eos_token_id]=-float('inf')  
         seen=set(generated_ids[-30:]) if generated_ids else set()  
@@ -840,7 +890,8 @@ class DegenerationGuard:
         return logits  
   
 # ═══════════════════════════════════════════════════════════════════  
-# 第16部分 · RetrievalDiag  
+# 第16部分 · RetrievalDiag (v3.12: + per_memory_forward_maxsim,  
+#            overlap_pass/fwd_only_pass 计数)  
 # ═══════════════════════════════════════════════════════════════════  
 @dataclass  
 class RetrievalDiag:  
@@ -850,12 +901,20 @@ class RetrievalDiag:
     fiber_summary_norm: float = 0.0  
     top_reranker_score: float = 0.0  
     top_dir_sim: float = 0.0  
-    top_wte_sim: float = 0.0  
     top_sem_sim: float = 0.0  
+    top_forward_maxsim: float = 0.0  
+    top_backward_maxsim: float = 0.0  
+    top_overlap: float = 0.0  
+    n_candidates_initial: int = 0  
+    n_after_hard_filter: int = 0  
+    n_after_score_filter: int = 0  
+    n_overlap_pass: int = 0  
+    n_fwd_only_pass: int = 0  
     batch_mem_weights: List[List[Tuple[int, float]]] = field(default_factory=list)  
+    per_memory_forward_maxsim: Dict[int, float] = field(default_factory=dict)  
   
 # ═══════════════════════════════════════════════════════════════════  
-# 第17部分 · AMM (v3.7: 三路检索评分, content_wte_centroid)  
+# 第17部分 · AMM (v3.12: expanded overlap gating, forward_maxsim 传播)  
 # ═══════════════════════════════════════════════════════════════════  
 class AMM(nn.Module):  
     def __init__(self, c):  
@@ -871,8 +930,9 @@ class AMM(nn.Module):
         self.contrast_proj_f=nn.Linear(c.d_F,c.d_M,bias=False)  
         self.contrast_proj_x=nn.Linear(c.d_M,c.d_M,bias=False)  
         nn.init.eye_(self.contrast_proj_x.weight)  
-        self.reranker=RetrievalReranker(c.d_M,c.d_F)  
+        self.reranker=RetrievalReranker(c.d_M,c.d_F,clip=c.reranker_clip)  
         self.tree=DirectionTree(c); self.time=0.  
+        self.wte_normed: Optional[torch.Tensor] = None  
   
     def surprise_proxy(self, logits, tgt):  
         nll=-F.log_softmax(logits,-1).gather(2,tgt.unsqueeze(-1)).squeeze(-1)  
@@ -885,9 +945,74 @@ class AMM(nn.Module):
         with torch.no_grad():  
             return self.dir_pred(base.unsqueeze(0),fiber.unsqueeze(0)).squeeze(0)  
   
+    # ── MaxSim 工具 ──  
+  
+    @staticmethod  
+    def _compute_forward_maxsim(query_ids, mem_ids, wte_normed):  
+        if not query_ids or not mem_ids:  
+            return 0.0  
+        V = wte_normed.shape[0]  
+        q_ids = [i for i in query_ids if i < V]  
+        m_ids = [i for i in mem_ids if i < V]  
+        if not q_ids or not m_ids:  
+            return 0.0  
+        q_vecs = wte_normed[q_ids]  
+        m_vecs = wte_normed[m_ids]  
+        sim = q_vecs @ m_vecs.T  
+        return sim.max(dim=1).values.mean().item()  
+  
+    @staticmethod  
+    def _compute_backward_maxsim(query_ids, mem_ids, wte_normed):  
+        if not query_ids or not mem_ids:  
+            return 0.0  
+        V = wte_normed.shape[0]  
+        q_ids = [i for i in query_ids if i < V]  
+        m_ids = [i for i in mem_ids if i < V]  
+        if not q_ids or not m_ids:  
+            return 0.0  
+        q_vecs = wte_normed[q_ids]  
+        m_vecs = wte_normed[m_ids]  
+        sim = q_vecs @ m_vecs.T  
+        return sim.max(dim=0).values.mean().item()  
+  
+    @staticmethod  
+    def _compute_maxsim_bidi(ids_a, ids_b, wte_normed):  
+        fwd = AMM._compute_forward_maxsim(ids_a, ids_b, wte_normed)  
+        bwd = AMM._compute_backward_maxsim(ids_a, ids_b, wte_normed)  
+        return 0.5 * fwd + 0.5 * bwd  
+  
+    @staticmethod  
+    def _compute_token_overlap(query_ids, mem_ids):  
+        if not query_ids:  
+            return 0.0  
+        q_set = set(query_ids)  
+        m_set = set(mem_ids)  
+        overlap = len(q_set & m_set)  
+        return overlap / len(q_set)  
+  
+    @staticmethod  
+    def _compute_expanded_overlap_count(query_expanded_ids, mem_content_ids):  
+        """v3.12: 扩展重叠计数.  
+        query 侧用扩展 IDs (提高同域召回),  
+        memory 侧用精确 IDs (避免双重扩展跨域桥接).  
+        返回重叠 token 数 (不是比率).  
+        """  
+        if not query_expanded_ids or not mem_content_ids:  
+            return 0  
+        return len(set(query_expanded_ids) & set(mem_content_ids))  
+  
+    def _check_consolidation_compatible(self, existing_content_ids, new_content_ids):  
+        if not existing_content_ids or not new_content_ids:  
+            return True  
+        if self.wte_normed is None:  
+            return True  
+        maxsim = self._compute_maxsim_bidi(  
+            existing_content_ids, new_content_ids, self.wte_normed)  
+        return maxsim >= self.c.consol_maxsim_min  
+  
     def store_mem(self, h, surp, training_mode=False, source_text="",  
                   content_token_ids=None, content_semantic_emb=None,  
-                  content_wte_centroid=None, expanded_content_ids=None):  
+                  expanded_content_ids=None):  
         dev=h.device; h2=h.unsqueeze(0)  
         x=self.ctx(h2).squeeze(0).detach()  
         s=surp if isinstance(surp,torch.Tensor) else torch.tensor(surp,**_dev(h))  
@@ -896,7 +1021,6 @@ class AMM(nn.Module):
         d=self._compute_dirn(x,f)  
         sem_emb=content_semantic_emb if content_semantic_emb is not None else h.detach().clone()  
         ct_ids=content_token_ids or []  
-        wte_cen=content_wte_centroid  
         exp_ids=expanded_content_ids or []  
         if self.tree.store:  
             scored=self.tree.retrieve(d.detach(),bw=1)[:5]  
@@ -906,6 +1030,9 @@ class AMM(nn.Module):
                     dist=self.metric.midpoint_approx_distance(  
                         x.unsqueeze(0),ex.base.unsqueeze(0).to(dev)).item()  
                     if dist<self.c.consol_dist*self.c.consol_conflict_ratio:  
+                        if not self._check_consolidation_compatible(  
+                                ex.content_token_ids, ct_ids):  
+                            continue  
                         alpha=self.c.write_update_alpha  
                         nb=((1-alpha)*ex.fiber+alpha*f).detach().clone()  
                         nba=((1-alpha)*ex.base+alpha*x).detach().clone()  
@@ -919,30 +1046,38 @@ class AMM(nn.Module):
                             else: ex.semantic_emb=sem_emb.detach().clone()  
                         if ct_ids: ex.content_token_ids=list(set(ex.content_token_ids+ct_ids))  
                         if exp_ids: ex.expanded_content_ids=list(set(ex.expanded_content_ids+exp_ids))  
-                        if wte_cen is not None:  
-                            if ex.content_wte_centroid is not None:  
-                                ex.content_wte_centroid=((1-alpha)*ex.content_wte_centroid.to(dev)+alpha*wte_cen).detach().clone()  
-                            else: ex.content_wte_centroid=wte_cen.detach().clone()  
                         self.time+=1; return ex  
         m=MemEntry(mid=self.tree.nid,base=x.detach().clone(),fiber=f.detach().clone(),  
                    dirn=d.detach().clone(),surprise=s.item(),ts=self.time,last=self.time,  
                    source_text=source_text,content_token_ids=ct_ids,  
                    semantic_emb=sem_emb.detach().clone() if sem_emb is not None else None,  
-                   content_wte_centroid=wte_cen.detach().clone() if wte_cen is not None else None,  
                    expanded_content_ids=exp_ids)  
         self.tree.nid+=1; self.tree.insert(m); self.time+=1; return m  
   
     def retrieve_multi(self, xq, fq, topk=None, bw=None, update_stats=True,  
-                       query_semantic_emb=None, query_wte_centroid=None):  
+                       query_semantic_emb=None,  
+                       query_content_ids_per_batch=None,  
+                       query_expanded_ids_per_batch=None,  
+                       wte_normed=None):  
+        """v3.12: 扩展词汇重叠门控检索链.  
+  
+        过滤链:  
+        1. 候选召回 (tree direction retrieval)  
+        2. 双层硬过滤:  
+           a. expanded_overlap > 0 → 直接通过 (词汇连接)  
+           b. 无词汇连接 → forward_maxsim >= threshold  
+        3. Combined score + reranker  
+        4. Score-relative 过滤  
+        5. Top-k 限制  
+        6. Sharp softmax 加权  
+        7. 每记忆 forward_maxsim 存入 diag 供下游加权  
+        """  
         B=xq.shape[0]; dev=xq.device  
         topk=topk or self.c.retrieval_topk; bw=bw or self.c.retrieval_beam  
         recall_k=int(topk*self.c.retrieval_recall_factor)  
         flat_thresh=self.c.flat_scan_threshold_factor*topk  
         qdir=self.dir_pred(xq,fq)  
         diag=RetrievalDiag()  
-        w_dir=self.c.ret_dir_weight  
-        w_sem=self.c.ret_sem_weight  
-        w_wte=self.c.ret_wte_weight  
         if not self.tree.store:  
             empty=self.empty_state(xq,fq)  
             mask=torch.ones(B,1,**_dev(xq))  
@@ -960,6 +1095,7 @@ class AMM(nn.Module):
                 mids=[s[0] for s in scored[:recall_k]]  
             mems=[self.tree.store[i] for i in mids if i in self.tree.store]  
             diag.recall_count=len(mems)  
+            diag.n_candidates_initial=len(mems)  
             if not mems:  
                 empty=self.empty_state(xq[b:b+1],fq[b:b+1])  
                 all_results.append(empty.squeeze(0).unsqueeze(0))  
@@ -973,9 +1109,8 @@ class AMM(nn.Module):
             md=torch.stack([m.dirn.to(dev) for m in mems])  
             raw_dir_sim=torch.einsum('d,cd->c',qdir[b],md)  
             diag.top_dir_sim=raw_dir_sim.max().item()  
-            # ── v3.7 三路评分 ──  
-            # 1. Direction similarity  
-            # 2. Content-aware semantic embedding similarity  
+  
+            # ── Semantic similarity ──  
             sem_sims=[]  
             if query_semantic_emb is not None:  
                 for mem in mems:  
@@ -989,1228 +1124,1590 @@ class AMM(nn.Module):
                 diag.top_sem_sim=sem_sim_t.max().item()  
             else:  
                 sem_sim_t=torch.zeros(C,device=dev)  
-            # 3. WTE centroid similarity  
-            wte_sims=[]  
-            if query_wte_centroid is not None:  
-                qwte_b=query_wte_centroid[b]  
-                qwte_norm=qwte_b.norm()  
+  
+            q_content_ids=(query_content_ids_per_batch[b]  
+                           if query_content_ids_per_batch and b<len(query_content_ids_per_batch)  
+                           else [])  
+            q_expanded_ids=(query_expanded_ids_per_batch[b]  
+                            if query_expanded_ids_per_batch and b<len(query_expanded_ids_per_batch)  
+                            else q_content_ids)  
+            wn=wte_normed if wte_normed is not None else self.wte_normed  
+  
+            if q_content_ids and wn is not None:  
+                # ── 计算每候选的 forward/backward maxsim + overlap ──  
+                forward_scores = []  
+                backward_scores = []  
+                overlap_scores = []  
+                expanded_overlap_counts = []  
                 for mem in mems:  
-                    if mem.content_wte_centroid is not None and qwte_norm>1e-8:  
-                        s=F.cosine_similarity(  
-                            qwte_b.unsqueeze(0),  
-                            mem.content_wte_centroid.unsqueeze(0).to(dev),dim=-1).squeeze()  
-                        wte_sims.append(s)  
-                    else: wte_sims.append(raw_dir_sim.new_tensor(0.0))  
-                wte_sim_t=torch.stack(wte_sims)  
-                diag.top_wte_sim=wte_sim_t.max().item()  
+                    fwd = self._compute_forward_maxsim(q_content_ids, mem.content_token_ids, wn)  
+                    bwd = self._compute_backward_maxsim(q_content_ids, mem.content_token_ids, wn)  
+                    ov = self._compute_token_overlap(q_content_ids, mem.content_token_ids)  
+                    exp_ov = self._compute_expanded_overlap_count(q_expanded_ids, mem.content_token_ids)  
+                    forward_scores.append(fwd)  
+                    backward_scores.append(bwd)  
+                    overlap_scores.append(ov)  
+                    expanded_overlap_counts.append(exp_ov)  
+                forward_t = torch.tensor(forward_scores, device=dev)  
+                backward_t = torch.tensor(backward_scores, device=dev)  
+                overlap_t = torch.tensor(overlap_scores, device=dev)  
+  
+                diag.top_forward_maxsim = forward_t.max().item()  
+                diag.top_backward_maxsim = backward_t.max().item()  
+                diag.top_overlap = overlap_t.max().item()  
+  
+                # ── Combined score ──  
+                combined_sim = (self.c.ret_forward_maxsim_weight * forward_t  
+                                + self.c.ret_backward_maxsim_weight * backward_t  
+                                + self.c.ret_overlap_weight * overlap_t  
+                                + self.c.ret_sem_weight * sem_sim_t  
+                                + self.c.ret_dir_weight * raw_dir_sim)  
+  
+                # ── v3.12: 双层硬过滤 (expanded overlap gating) ──  
+                top_forward_val = forward_t.max().item()  
+                relative_thresh = top_forward_val * self.c.forward_maxsim_relative_ratio  
+                fwd_hard_thresh = max(self.c.forward_maxsim_hard_threshold, relative_thresh)  
+  
+                hard_mask = torch.zeros(C, dtype=torch.bool, device=dev)  
+                n_overlap_pass = 0  
+                n_fwd_only_pass = 0  
+                for ci in range(C):  
+                    if expanded_overlap_counts[ci] > 0:  
+                        # 第一层: 有词汇连接 → 直接通过  
+                        hard_mask[ci] = True  
+                        n_overlap_pass += 1  
+                    elif forward_t[ci].item() >= fwd_hard_thresh:  
+                        # 第二层: 无词汇连接但 forward_maxsim 够高  
+                        hard_mask[ci] = True  
+                        n_fwd_only_pass += 1  
+                    # else: 拒绝  
+  
+                # 安全保底: 至少保留 1 条  
+                if hard_mask.sum().item() == 0:  
+                    hard_mask[forward_t.argmax()] = True  
+                    n_fwd_only_pass = 1  
+  
+                diag.n_overlap_pass = n_overlap_pass  
+                diag.n_fwd_only_pass = n_fwd_only_pass  
+                diag.n_after_hard_filter = hard_mask.sum().item()  
             else:  
-                wte_sim_t=torch.zeros(C,device=dev)  
-            combined_sim=w_dir*raw_dir_sim+w_sem*sem_sim_t+w_wte*wte_sim_t  
-            # Reranker refines combined score  
-            rerank_scores=self.reranker(  
-                xq[b:b+1],fq[b:b+1],sb.unsqueeze(0),sf.unsqueeze(0),  
+                forward_t = torch.zeros(C, device=dev)  
+                backward_t = torch.zeros(C, device=dev)  
+                overlap_t = torch.zeros(C, device=dev)  
+                combined_sim = 0.2 * raw_dir_sim + 0.8 * sem_sim_t  
+                hard_mask = torch.ones(C, dtype=torch.bool, device=dev)  
+                diag.n_after_hard_filter = C  
+  
+            # Apply hard filter  
+            keep_indices = hard_mask.nonzero(as_tuple=True)[0]  
+            if keep_indices.numel() > 0 and keep_indices.numel() < C:  
+                mems = [mems[i] for i in keep_indices.tolist()]  
+                sb = sb[keep_indices]; sf = sf[keep_indices]  
+                combined_sim = combined_sim[keep_indices]  
+                raw_dir_sim = raw_dir_sim[keep_indices]  
+                forward_t = forward_t[keep_indices]  
+                C = len(mems)  
+  
+            # Reranker  
+            rerank_scores = self.reranker(  
+                xq[b:b+1], fq[b:b+1], sb.unsqueeze(0), sf.unsqueeze(0),  
                 combined_sim.unsqueeze(0)).squeeze(0)  
-            diag.reranker_delta_mean=(rerank_scores-combined_sim).abs().mean().item()  
-            diag.top_reranker_score=rerank_scores.max().item()  
-            if not self.training and C>topk:  
-                _,top_idx=rerank_scores.topk(topk)  
-                mems=[mems[i] for i in top_idx.cpu().tolist()]  
-                sb=sb[top_idx]; sf=sf[top_idx]; rerank_scores=rerank_scores[top_idx]; C=topk  
-            qp=xq[b].unsqueeze(0).expand(C,-1)  
-            geo_r=self.geo.solve(sb,qp)  
-            transported=self.trans(sf,geo_r.path)  
+            diag.reranker_delta_mean = (rerank_scores - combined_sim).abs().mean().item()  
+            diag.top_reranker_score = rerank_scores.max().item()  
+  
+            # Score-relative filter  
+            if C > 1:  
+                top_score = rerank_scores.max()  
+                score_thresh = top_score * self.c.score_keep_ratio  
+                score_mask = rerank_scores >= score_thresh  
+                if score_mask.sum().item() < 1:  
+                    score_mask[rerank_scores.argmax()] = True  
+                score_keep = score_mask.nonzero(as_tuple=True)[0]  
+                diag.n_after_score_filter = score_keep.numel()  
+                if score_keep.numel() < C:  
+                    mems = [mems[i] for i in score_keep.tolist()]  
+                    sb = sb[score_keep]; sf = sf[score_keep]  
+                    rerank_scores = rerank_scores[score_keep]  
+                    forward_t = forward_t[score_keep]  
+                    C = len(mems)  
+            else:  
+                diag.n_after_score_filter = C  
+  
+            # Top-k limit  
+            if not self.training and C > topk:  
+                _, top_idx = rerank_scores.topk(topk)  
+                mems = [mems[i] for i in top_idx.cpu().tolist()]  
+                sb = sb[top_idx]; sf = sf[top_idx]  
+                rerank_scores = rerank_scores[top_idx]  
+                forward_t = forward_t[top_idx]  
+                C = topk  
+  
+            # ── v3.12: 存储每记忆 forward_maxsim ──  
+            for mi, mem in enumerate(mems):  
+                diag.per_memory_forward_maxsim[mem.mid] = forward_t[mi].item()  
+  
+            qp = xq[b].unsqueeze(0).expand(C, -1)  
+            geo_r = self.geo.solve(sb, qp)  
+            transported = self.trans(sf, geo_r.path)  
             if self.training:  
-                ret_s=self.retention(sb,sf,  
-                    torch.tensor([m.surprise for m in mems],**_dev(xq)),  
-                    torch.tensor([self.time-m.last for m in mems],**_dev(xq)),  
-                    torch.tensor([m.cnt for m in mems],**_dev(xq)))  
-                transported=transported*ret_s.unsqueeze(-1)  
+                ret_s = self.retention(sb, sf,  
+                    torch.tensor([m.surprise for m in mems], **_dev(xq)),  
+                    torch.tensor([self.time - m.last for m in mems], **_dev(xq)),  
+                    torch.tensor([m.cnt for m in mems], **_dev(xq)))  
+                transported = transported * ret_s.unsqueeze(-1)  
             if update_stats:  
-                for m in mems: m.last=self.time; m.cnt+=1  
-            w=F.softmax(rerank_scores,dim=0)  
-            fs=(transported*w.unsqueeze(-1)).sum(0)  
-            batch_mw=[(m.mid,w[mi].item()) for mi,m in enumerate(mems)]  
+                for m in mems: m.last = self.time; m.cnt += 1  
+  
+            w = F.softmax(rerank_scores / self.c.retrieval_weight_temperature, dim=0)  
+            fs = (transported * w.unsqueeze(-1)).sum(0)  
+            batch_mw = [(m.mid, w[mi].item()) for mi, m in enumerate(mems)]  
             all_batch_mw.append(batch_mw)  
-            all_results.append(transported); all_masks.append(torch.ones(C,**_dev(xq)))  
-            all_biases.append(rerank_scores/self.c.tau); all_summaries.append(fs)  
-        maxC=max(r.shape[0] for r in all_results)  
-        padded=[]; pm=[]; pd=[]  
+            all_results.append(transported); all_masks.append(torch.ones(C, **_dev(xq)))  
+            all_biases.append(rerank_scores / self.c.tau); all_summaries.append(fs)  
+  
+        maxC = max(r.shape[0] for r in all_results)  
+        padded = []; pm = []; pd = []  
         for bi in range(B):  
-            r,mk,db=all_results[bi],all_masks[bi],all_biases[bi]; gap=maxC-r.shape[0]  
-            if gap>0:  
-                pr=self.empty_state(xq[bi:bi+1],fq[bi:bi+1]).expand(gap,-1)  
-                r=torch.cat([r,pr if self.training else pr.detach()],0)  
-                mk=torch.cat([mk,torch.zeros(gap,**_dev(xq))])  
-                db=torch.cat([db,torch.full((gap,),-1e9,**_dev(xq))])  
+            r, mk, db = all_results[bi], all_masks[bi], all_biases[bi]; gap = maxC - r.shape[0]  
+            if gap > 0:  
+                pr = self.empty_state(xq[bi:bi+1], fq[bi:bi+1]).expand(gap, -1)  
+                r = torch.cat([r, pr if self.training else pr.detach()], 0)  
+                mk = torch.cat([mk, torch.zeros(gap, **_dev(xq))])  
+                db = torch.cat([db, torch.full((gap,), -1e9, **_dev(xq))])  
             padded.append(r); pm.append(mk); pd.append(db)  
-        mf=torch.stack(padded); mem_mask=torch.stack(pm); dir_bias=torch.stack(pd)  
-        fiber_summary=torch.stack(all_summaries)  
-        diag.fiber_summary_norm=fiber_summary.norm().item()  
-        diag.batch_mem_weights=all_batch_mw  
-        refined=self.attn(fq,mf,mem_mask=mem_mask,dir_bias=dir_bias)  
-        return refined,mem_mask,fiber_summary,diag  
+        mf = torch.stack(padded); mem_mask = torch.stack(pm); dir_bias = torch.stack(pd)  
+        fiber_summary = torch.stack(all_summaries)  
+        diag.fiber_summary_norm = fiber_summary.norm().item()  
+        diag.batch_mem_weights = all_batch_mw  
+        refined = self.attn(fq, mf, mem_mask=mem_mask, dir_bias=dir_bias)  
+        return refined, mem_mask, fiber_summary, diag  
   
     def decay(self):  
-        rm=[]  
-        for mid,m in self.tree.store.items():  
-            dt=torch.tensor([self.time-m.last],**_dev(m.base))  
-            cnt=torch.tensor([m.cnt],**_dev(m.base))  
+        rm = []  
+        for mid, m in self.tree.store.items():  
+            dt = torch.tensor([self.time - m.last], **_dev(m.base))  
+            cnt = torch.tensor([m.cnt], **_dev(m.base))  
             with torch.no_grad():  
-                sc=self.retention(m.base.unsqueeze(0),m.fiber.unsqueeze(0),  
-                    torch.tensor([m.surprise],**_dev(m.base)),dt,cnt).item()  
-            if sc<self.c.retention_gc_threshold: rm.append(mid)  
+                sc = self.retention(m.base.unsqueeze(0), m.fiber.unsqueeze(0),  
+                    torch.tensor([m.surprise], **_dev(m.base)), dt, cnt).item()  
+            if sc < self.c.retention_gc_threshold: rm.append(mid)  
         for i in rm: self.tree.remove(i)  
         return len(rm)  
   
     def consolidate(self):  
-        ms=list(self.tree.store.values())  
-        if len(ms)<2: return 0  
-        merged=set()  
+        ms = list(self.tree.store.values())  
+        if len(ms) < 2: return 0  
+        merged = set()  
         for i in range(len(ms)):  
             if ms[i].mid in merged: continue  
-            for j in range(i+1,len(ms)):  
+            for j in range(i+1, len(ms)):  
                 if ms[j].mid in merged: continue  
-                d=self.metric.midpoint_approx_distance(  
-                    ms[i].base.unsqueeze(0),ms[j].base.unsqueeze(0)).item()  
-                if d<self.c.consol_dist:  
-                    wi,wj=ms[i].cnt+1,ms[j].cnt+1; t=wi+wj  
-                    nb=(ms[i].base*wi+ms[j].base*wj)/t  
-                    nf=(ms[i].fiber*wi+ms[j].fiber*wj)/t  
-                    nd=self._compute_dirn(nb,nf)  
-                    ms[i].base=nb.detach().clone(); ms[i].fiber=nf.detach().clone()  
-                    ms[i].dirn=nd.detach().clone(); ms[i].cnt+=ms[j].cnt  
-                    ms[i].surprise=max(ms[i].surprise,ms[j].surprise); ms[i].version+=1  
+                d = self.metric.midpoint_approx_distance(  
+                    ms[i].base.unsqueeze(0), ms[j].base.unsqueeze(0)).item()  
+                if d < self.c.consol_dist:  
+                    if not self._check_consolidation_compatible(  
+                            ms[i].content_token_ids, ms[j].content_token_ids):  
+                        continue  
+                    wi, wj = ms[i].cnt+1, ms[j].cnt+1; t = wi+wj  
+                    nb = (ms[i].base*wi + ms[j].base*wj) / t  
+                    nf = (ms[i].fiber*wi + ms[j].fiber*wj) / t  
+                    nd = self._compute_dirn(nb, nf)  
+                    ms[i].base = nb.detach().clone(); ms[i].fiber = nf.detach().clone()  
+                    ms[i].dirn = nd.detach().clone(); ms[i].cnt += ms[j].cnt  
+                    ms[i].surprise = max(ms[i].surprise, ms[j].surprise); ms[i].version += 1  
                     if ms[j].source_text and not ms[i].source_text:  
-                        ms[i].source_text=ms[j].source_text  
-                    ms[i].content_token_ids=list(set(ms[i].content_token_ids+ms[j].content_token_ids))  
-                    ms[i].expanded_content_ids=list(set(ms[i].expanded_content_ids+ms[j].expanded_content_ids))  
+                        ms[i].source_text = ms[j].source_text  
+                    ms[i].content_token_ids = list(set(ms[i].content_token_ids + ms[j].content_token_ids))  
+                    ms[i].expanded_content_ids = list(set(ms[i].expanded_content_ids + ms[j].expanded_content_ids))  
                     if ms[i].semantic_emb is not None and ms[j].semantic_emb is not None:  
-                        ms[i].semantic_emb=((ms[i].semantic_emb*wi+ms[j].semantic_emb*wj)/t).detach().clone()  
-                    elif ms[j].semantic_emb is not None: ms[i].semantic_emb=ms[j].semantic_emb.clone()  
-                    if ms[i].content_wte_centroid is not None and ms[j].content_wte_centroid is not None:  
-                        ms[i].content_wte_centroid=((ms[i].content_wte_centroid*wi+ms[j].content_wte_centroid*wj)/t).detach().clone()  
-                    elif ms[j].content_wte_centroid is not None: ms[i].content_wte_centroid=ms[j].content_wte_centroid.clone()  
+                        ms[i].semantic_emb = ((ms[i].semantic_emb*wi + ms[j].semantic_emb*wj) / t).detach().clone()  
+                    elif ms[j].semantic_emb is not None: ms[i].semantic_emb = ms[j].semantic_emb.clone()  
                     merged.add(ms[j].mid)  
         for mid in merged: del self.tree.store[mid]  
         if merged: self.tree.rebuild()  
         return len(merged)  
   
 # ═══════════════════════════════════════════════════════════════════  
-# 第18部分 · MemLLM (v3.7: content-position-only embedding,  
-#            WTE centroid, hard content-first decoding)  
+# 第18部分 · MemLLM (v3.12: expanded query IDs, forward_maxsim 加权)  
 # ═══════════════════════════════════════════════════════════════════  
 class MemLLM(nn.Module):  
     def __init__(self, c):  
-        super().__init__(); self.c=c  
-        self.amm=AMM(c); self.bridge=EmbBridge(c)  
-        self.semantic_probe=PrefixSemanticProbe(c.d_LLM,c.L_mem,c.d_F)  
-        self.vocab_proj=MemoryVocabProjector(c.d_F,c.d_LLM)  
-        self.layer_pool=None; self.llm=None; self.tok=None  
-        self._degen_guard=None; self.content_classifier=None  
-        self._wte_neighbor_cache: Optional[Dict[int,List[int]]] = None  
+        super().__init__(); self.c = c  
+        self.amm = AMM(c); self.bridge = EmbBridge(c)  
+        self.semantic_probe = PrefixSemanticProbe(c.d_LLM, c.L_mem, c.d_F)  
+        self.vocab_proj = MemoryVocabProjector(c.d_F, c.d_LLM)  
+        self.layer_pool = None; self.llm = None; self.tok = None  
+        self._degen_guard = None; self.content_classifier = None  
+        self._wte_neighbor_cache: Optional[Dict[int, List[int]]] = None  
+        self._wte_normed: Optional[torch.Tensor] = None  
   
     def load(self, name="gpt2"):  
         from transformers import GPT2LMHeadModel, GPT2Tokenizer  
-        self.tok=GPT2Tokenizer.from_pretrained(name)  
-        self.llm=GPT2LMHeadModel.from_pretrained(name)  
+        self.tok = GPT2Tokenizer.from_pretrained(name)  
+        self.llm = GPT2LMHeadModel.from_pretrained(name)  
         for p in self.llm.parameters(): p.requires_grad_(False)  
-        if self.tok.pad_token is None: self.tok.pad_token=self.tok.eos_token  
-        self.layer_pool=AdaptiveLayerPool(self.llm.config.n_layer+1,self.c.d_LLM)  
-        self.content_classifier=ContentTokenClassifier(self.tok,self.c.content_min_len)  
-        self._degen_guard=DegenerationGuard(self.tok,self.c,self.content_classifier)  
+        if self.tok.pad_token is None: self.tok.pad_token = self.tok.eos_token  
+        self.layer_pool = AdaptiveLayerPool(self.llm.config.n_layer+1, self.c.d_LLM)  
+        self.content_classifier = ContentTokenClassifier(self.tok, self.c.content_min_len)  
+        self._degen_guard = DegenerationGuard(self.tok, self.c, self.content_classifier)  
         self.bridge.aligner.calibrate(self.llm)  
-        self.c.vocab_size=self.llm.config.vocab_size  
+        self.c.vocab_size = self.llm.config.vocab_size  
+        self._wte_normed = F.normalize(  
+            self.llm.transformer.wte.weight.detach(), dim=-1, eps=1e-8)  
+        self.amm.wte_normed = self._wte_normed  
         self._build_wte_neighbor_cache()  
   
     def _build_wte_neighbor_cache(self):  
-        """Pre-compute WTE neighbors for content tokens (v3.7 expansion)."""  
         if self.llm is None or self.content_classifier is None: return  
-        wte=self.llm.transformer.wte.weight.detach()  
-        cc=self.content_classifier  
-        content_list=sorted(cc.content_ids)  
-        if not content_list:  
-            self._wte_neighbor_cache={}; return  
-        self._wte_neighbor_cache={}  
-        wte_n=F.normalize(wte,dim=-1,eps=1e-8)  
-        K=self.c.wte_neighbor_k; thresh=self.c.wte_neighbor_threshold  
-        for tid in content_list:  
-            if tid>=wte.shape[0]: continue  
-            sim=wte_n[tid]@wte_n.T  
-            topk_vals,topk_ids=sim.topk(K+1)  
-            neighbors=[]  
-            for v,nid in zip(topk_vals,topk_ids):  
-                nid_int=nid.item()  
-                if nid_int==tid: continue  
-                if v.item()>=thresh and nid_int in cc.content_ids:  
-                    neighbors.append(nid_int)  
-            self._wte_neighbor_cache[tid]=neighbors  
+        wte_n = self._wte_normed  
+        cc = self.content_classifier  
+        content_list = sorted(cc.content_ids)  
+        valid = [t for t in content_list if t < wte_n.shape[0]]  
+        self._wte_neighbor_cache = {}  
+        K = self.c.wte_neighbor_k; thresh = self.c.wte_neighbor_threshold  
+        batch_size = 500  
+        for start in range(0, len(valid), batch_size):  
+            batch_ids = valid[start:start+batch_size]  
+            batch_t = torch.tensor(batch_ids, device=wte_n.device)  
+            batch_vecs = wte_n[batch_t]  
+            sims = batch_vecs @ wte_n.T  
+            topk_vals, topk_ids = sims.topk(K+1, dim=-1)  
+            for i, tid in enumerate(batch_ids):  
+                neighbors = []  
+                for v_val, nid in zip(topk_vals[i], topk_ids[i]):  
+                    nid_int = nid.item()  
+                    if nid_int == tid: continue  
+                    if v_val.item() >= thresh and nid_int in cc.content_ids:  
+                        neighbors.append(nid_int)  
+                self._wte_neighbor_cache[tid] = neighbors  
   
     def _expand_content_ids(self, content_ids: List[int]) -> List[int]:  
-        """Expand content_ids with WTE neighbors."""  
         if not self._wte_neighbor_cache: return content_ids  
-        expanded=set(content_ids)  
+        expanded = set(content_ids)  
         for tid in content_ids:  
-            neighbors=self._wte_neighbor_cache.get(tid,[])  
+            neighbors = self._wte_neighbor_cache.get(tid, [])  
             expanded.update(neighbors)  
         return list(expanded)  
   
     def _compute_content_semantic_emb(self, hidden_states, ids, mask):  
-        """v3.7: Compute semantic embedding from CONTENT token positions only."""  
-        B,T,D=hidden_states.shape  
-        cc=self.content_classifier  
-        result=[]  
+        B, T, D = hidden_states.shape  
+        cc = self.content_classifier  
+        result = []  
         for b in range(B):  
-            content_positions=[]  
-            T_valid=min(T,ids.shape[1]) if ids is not None else T  
+            content_positions = []  
+            T_valid = min(T, ids.shape[1]) if ids is not None else T  
             for pos in range(T_valid):  
-                if mask is not None and mask.shape[1]>pos and mask[b,pos].item()==0:  
+                if mask is not None and mask.shape[1] > pos and mask[b, pos].item() == 0:  
                     continue  
                 if ids is not None:  
-                    tid=ids[b,pos].item()  
+                    tid = ids[b, pos].item()  
                     if cc is not None and tid in cc.content_ids:  
-                        content_positions.append(min(pos,T-1))  
+                        content_positions.append(min(pos, T-1))  
             if content_positions:  
-                pos_t=torch.tensor(content_positions,device=hidden_states.device)  
-                content_hs=hidden_states[b,pos_t]  
+                pos_t = torch.tensor(content_positions, device=hidden_states.device)  
+                content_hs = hidden_states[b, pos_t]  
                 result.append(content_hs.mean(0))  
             else:  
                 if mask is not None:  
-                    valid_len=min(int(mask[b].sum().item()),T)  
-                    valid_len=max(valid_len,1)  
-                    result.append(hidden_states[b,:valid_len].mean(0))  
+                    valid_len = min(int(mask[b].sum().item()), T)  
+                    valid_len = max(valid_len, 1)  
+                    result.append(hidden_states[b, :valid_len].mean(0))  
                 else:  
                     result.append(hidden_states[b].mean(0))  
         return torch.stack(result)  
   
-    def _compute_wte_centroid(self, content_ids: List[int]) -> Optional[torch.Tensor]:  
-        """Compute mean WTE embedding for content tokens."""  
-        if not content_ids or self.llm is None: return None  
-        wte=self.llm.transformer.wte.weight.detach()  
-        valid=[i for i in content_ids if i<wte.shape[0]]  
-        if not valid: return None  
-        return wte[valid].mean(0).detach().clone()  
-  
     def fwd(self, ids, mask, prefix=None):  
-        B,T=ids.shape; dev=ids.device  
-        te=self.llm.transformer.wte(ids)+self.llm.transformer.wpe(torch.arange(T,device=dev))  
+        B, T = ids.shape; dev = ids.device  
+        te = self.llm.transformer.wte(ids) + self.llm.transformer.wpe(torch.arange(T, device=dev))  
         if prefix is not None:  
-            hidden=torch.cat([prefix,te],1)  
-            pm=torch.ones(B,prefix.shape[1],device=dev,dtype=mask.dtype)  
-            mask=torch.cat([pm,mask],1)  
-        else: hidden=te  
-        hidden=self.llm.transformer.drop(hidden)  
-        am=mask.unsqueeze(1).unsqueeze(2).to(hidden.dtype); am=(1.0-am)*(-1e4)  
-        hs=[hidden]  
+            hidden = torch.cat([prefix, te], 1)  
+            pm = torch.ones(B, prefix.shape[1], device=dev, dtype=mask.dtype)  
+            mask = torch.cat([pm, mask], 1)  
+        else: hidden = te  
+        hidden = self.llm.transformer.drop(hidden)  
+        am = mask.unsqueeze(1).unsqueeze(2).to(hidden.dtype); am = (1.0-am)*(-1e4)  
+        hs = [hidden]  
         for blk in self.llm.transformer.h:  
-            hidden=blk(hidden,attention_mask=am)[0]; hs.append(hidden)  
-        hidden=self.llm.transformer.ln_f(hidden)  
-        return {'logits':self.llm.lm_head(hidden),'hs':hs,  
-                'pl':prefix.shape[1] if prefix is not None else 0,'mask':mask}  
+            hidden = blk(hidden, attention_mask=am)[0]; hs.append(hidden)  
+        hidden = self.llm.transformer.ln_f(hidden)  
+        return {'logits': self.llm.lm_head(hidden), 'hs': hs,  
+                'pl': prefix.shape[1] if prefix is not None else 0, 'mask': mask}  
   
     def extract_state(self, hs, mask=None, pl=0):  
-        pooled=self.layer_pool(hs)  
-        if pl>0: pooled=pooled[:,pl:]  
-        m=mask[:,pl:] if mask is not None and pl>0 else mask  
-        if m is not None and m.shape[1]!=pooled.shape[1]: m=None  
-        xq,fq=self.bridge.ext(pooled,m)  
-        return pooled,xq,fq  
+        pooled = self.layer_pool(hs)  
+        if pl > 0: pooled = pooled[:, pl:]  
+        m = mask[:, pl:] if mask is not None and pl > 0 else mask  
+        if m is not None and m.shape[1] != pooled.shape[1]: m = None  
+        xq, fq = self.bridge.ext(pooled, m)  
+        return pooled, xq, fq  
   
-    def _build_content_bias(self, diag):  
-        """v3.7: Build content bias from retrieved memories' expanded content token IDs."""  
-        V=self.c.vocab_size; dev=next(self.parameters()).device  
-        B=len(diag.batch_mem_weights)  
-        bias=torch.zeros(B,V,device=dev)  
-        for b,mem_weights in enumerate(diag.batch_mem_weights):  
-            for mid,weight in mem_weights:  
-                if mid in self.amm.tree.store:  
-                    mem=self.amm.tree.store[mid]  
-                    all_ids=set(mem.content_token_ids)  
-                    all_ids.update(mem.expanded_content_ids)  
-                    for tid in all_ids:  
-                        if tid<V:  
-                            bias[b,tid]+=weight  
-            bmax=bias[b].max()  
-            if bmax>1e-8: bias[b]=bias[b]/bmax  
+    def _build_content_bias(self, diag, query_content_ids_per_batch):  
+        """v3.12: 每记忆权重乘以 forward_maxsim, 压低跨域污染."""  
+        V = self.c.vocab_size; dev = next(self.parameters()).device  
+        B = len(diag.batch_mem_weights)  
+        bias = torch.zeros(B, V, device=dev)  
+        wte_n = self._wte_normed  
+        for b, mem_weights in enumerate(diag.batch_mem_weights):  
+            q_ids = (query_content_ids_per_batch[b]  
+                     if query_content_ids_per_batch and b < len(query_content_ids_per_batch)  
+                     else [])  
+            q_valid = [i for i in q_ids if i < wte_n.shape[0]]  
+            if q_valid:  
+                q_vecs = wte_n[q_valid]  
+            for mid, weight in mem_weights:  
+                if mid not in self.amm.tree.store: continue  
+                mem = self.amm.tree.store[mid]  
+                # v3.12: forward_maxsim 加权  
+                fwd_w = diag.per_memory_forward_maxsim.get(mid, 0.5)  
+                adjusted_weight = weight * fwd_w  
+                valid_ids = [t for t in mem.content_token_ids if t < V and t < wte_n.shape[0]]  
+                if not valid_ids: continue  
+                if q_valid:  
+                    m_vecs = wte_n[valid_ids]  
+                    sim = m_vecs @ q_vecs.T  
+                    relevance = sim.max(dim=1).values.clamp(min=0)  
+                    for i, tid in enumerate(valid_ids):  
+                        bias[b, tid] += adjusted_weight * relevance[i].item()  
+                else:  
+                    for tid in valid_ids:  
+                        bias[b, tid] += adjusted_weight  
+            bmax = bias[b].max()  
+            if bmax > 1e-8: bias[b] /= bmax  
         return bias  
+  
+    def _compute_content_wte_mean(self, diag, query_content_ids_per_batch):  
+        """v3.12: forward_maxsim 加权."""  
+        dev = next(self.parameters()).device  
+        wte = self.llm.transformer.wte.weight.detach()  
+        wte_n = self._wte_normed  
+        B = len(diag.batch_mem_weights)  
+        results = []  
+        for b in range(B):  
+            q_ids = (query_content_ids_per_batch[b]  
+                     if query_content_ids_per_batch and b < len(query_content_ids_per_batch)  
+                     else [])  
+            q_valid = [i for i in q_ids if i < wte_n.shape[0]]  
+            all_tids = []; all_weights = []  
+            if b < len(diag.batch_mem_weights):  
+                for mid, w in diag.batch_mem_weights[b]:  
+                    if mid not in self.amm.tree.store: continue  
+                    mem = self.amm.tree.store[mid]  
+                    fwd_w = diag.per_memory_forward_maxsim.get(mid, 0.5)  
+                    adjusted_w = w * fwd_w  
+                    for tid in mem.content_token_ids:  
+                        if tid < wte.shape[0]:  
+                            all_tids.append(tid); all_weights.append(adjusted_w)  
+            if not all_tids:  
+                results.append(torch.zeros(self.c.d_LLM, device=dev)); continue  
+            tids_t = torch.tensor(all_tids, device=dev)  
+            weights_t = torch.tensor(all_weights, device=dev)  
+            if q_valid:  
+                q_vecs = wte_n[q_valid]  
+                m_vecs_n = wte_n[tids_t]  
+                sim = m_vecs_n @ q_vecs.T  
+                relevance = sim.max(dim=1).values.clamp(min=0)  
+                weights_t = weights_t * relevance  
+            total = weights_t.sum()  
+            if total > 1e-8:  
+                m_vecs_raw = wte[tids_t]  
+                results.append((m_vecs_raw * weights_t.unsqueeze(1)).sum(0) / total)  
+            else:  
+                results.append(torch.zeros(self.c.d_LLM, device=dev))  
+        return torch.stack(results)  
+  
+    def _compute_domain_anchors(self, content_bias, k=None):  
+        k = k or self.c.domain_anchor_k  
+        B = content_bias.shape[0]  
+        anchors = []  
+        for b in range(B):  
+            vals, ids = content_bias[b].topk(min(k, content_bias.shape[1]))  
+            anchor_set = []  
+            for v, tid in zip(vals, ids):  
+                if v.item() > 1e-6:  
+                    anchor_set.append(tid.item())  
+            anchors.append(anchor_set)  
+        return anchors  
   
     def _get_prefix(self, hs, mask=None, pl=0, update_stats=True,  
                     return_extra=False, ids=None):  
-        pooled,xq,fq=self.extract_state(hs,mask,pl)  
-        # v3.7: content-position-only semantic embedding  
-        trimmed_mask=mask[:,pl:] if mask is not None and pl>0 else mask  
-        if trimmed_mask is not None and pooled.shape[1]!=trimmed_mask.shape[1]:  
-            trimmed_mask=None  
+        pooled, xq, fq = self.extract_state(hs, mask, pl)  
+        trimmed_mask = mask[:, pl:] if mask is not None and pl > 0 else mask  
+        if trimmed_mask is not None and pooled.shape[1] != trimmed_mask.shape[1]:  
+            trimmed_mask = None  
+        # v3.12: 计算 exact + expanded query content IDs  
+        query_content_ids_per_batch = []  
+        query_expanded_ids_per_batch = []  
         if ids is not None and self.content_classifier is not None:  
-            query_sem=self._compute_content_semantic_emb(pooled,ids,trimmed_mask)  
-        else:  
-            query_sem=pooled.mean(1)  
-        # v3.7: WTE centroid for query  
-        query_wte_centroid=None  
-        if ids is not None and self.content_classifier is not None and self.llm is not None:  
-            wte=self.llm.transformer.wte.weight.detach()  
-            centroids=[]  
             for b in range(ids.shape[0]):  
-                b_ids=ids[b].tolist()  
-                b_content=self.content_classifier.get_content_ids_from_tokens(b_ids)  
-                if b_content:  
-                    valid=[i for i in b_content if i<wte.shape[0]]  
-                    if valid: centroids.append(wte[valid].mean(0))  
-                    else: centroids.append(torch.zeros(wte.shape[1],device=wte.device))  
-                else: centroids.append(torch.zeros(wte.shape[1],device=wte.device))  
-            query_wte_centroid=torch.stack(centroids)  
-        fibers,mem_mask,fiber_summary,diag=self.amm.retrieve_multi(  
-            xq,fq,update_stats=update_stats,  
+                b_ids = ids[b].tolist()  
+                b_exact = list(set(self.content_classifier.get_content_ids_from_tokens(b_ids)))  
+                b_expanded = self._expand_content_ids(b_exact)  
+                query_content_ids_per_batch.append(b_exact)  
+                query_expanded_ids_per_batch.append(b_expanded)  
+        if ids is not None and self.content_classifier is not None:  
+            query_sem = self._compute_content_semantic_emb(pooled, ids, trimmed_mask)  
+        else:  
+            query_sem = pooled.mean(1)  
+        wte_n = self._wte_normed  
+        fibers, mem_mask, fiber_summary, diag = self.amm.retrieve_multi(  
+            xq, fq, update_stats=update_stats,  
             query_semantic_emb=query_sem,  
-            query_wte_centroid=query_wte_centroid)  
-        prefix=self.bridge.inject(fibers,mem_mask,fiber_summary=fiber_summary)  
+            query_content_ids_per_batch=query_content_ids_per_batch,  
+            query_expanded_ids_per_batch=query_expanded_ids_per_batch,  
+            wte_normed=wte_n)  
+        content_wte_mean = self._compute_content_wte_mean(diag, query_content_ids_per_batch)  
+        has_cwm = content_wte_mean.abs().max().item() > 1e-6  
+        prefix = self.bridge.inject(fibers, mem_mask, fiber_summary=fiber_summary,  
+                                    content_wte_mean=content_wte_mean if has_cwm else None)  
         if return_extra:  
-            content_bias=self._build_content_bias(diag)  
-            return prefix,fiber_summary,diag,content_bias  
+            content_bias = self._build_content_bias(diag, query_content_ids_per_batch)  
+            return prefix, fiber_summary, diag, content_bias  
         return prefix  
   
     def _compute_vocab_bias(self, fiber_summary):  
         if fiber_summary is None: return None  
-        wte=self.llm.transformer.wte.weight.detach()  
-        return self.vocab_proj(fiber_summary,wte)  
+        wte = self.llm.transformer.wte.weight.detach()  
+        return self.vocab_proj(fiber_summary, wte)  
   
     def write(self, text, training_mode=False):  
-        tk=self.tok(text,return_tensors='pt',padding=True,truncation=True)  
-        ids,mask=tk['input_ids'],tk['attention_mask']  
-        dev=next(self.parameters()).device; ids,mask=ids.to(dev),mask.to(dev)  
+        tk = self.tok(text, return_tensors='pt', padding=True, truncation=True)  
+        ids, mask = tk['input_ids'], tk['attention_mask']  
+        dev = next(self.parameters()).device; ids, mask = ids.to(dev), mask.to(dev)  
         with torch.no_grad():  
-            o=self.fwd(ids,mask)  
-            hs_pooled=self.layer_pool(o['hs'])  
-        surp=self.amm.surprise_proxy(o['logits'][:,:-1],ids[:,1:])  
-        pooled_mean=hs_pooled.mean(1)  
-        # v3.7: content-position-only semantic embedding  
-        content_sem=self._compute_content_semantic_emb(hs_pooled,ids,mask)  
-        # v3.7: content token IDs + expansion + WTE centroid  
-        raw_ids=self.tok.encode(text)  
-        cc=self.content_classifier  
-        content_ids=list(set(cc.get_content_ids_from_tokens(raw_ids))) if cc else []  
-        expanded_ids=self._expand_content_ids(content_ids)  
-        wte_centroid=self._compute_wte_centroid(content_ids)  
-        stored=0; gate_vals=[]  
+            o = self.fwd(ids, mask)  
+            hs_pooled = self.layer_pool(o['hs'])  
+        surp = self.amm.surprise_proxy(o['logits'][:, :-1], ids[:, 1:])  
+        pooled_mean = hs_pooled.mean(1)  
+        content_sem = self._compute_content_semantic_emb(hs_pooled, ids, mask)  
+        raw_ids = self.tok.encode(text)  
+        cc = self.content_classifier  
+        content_ids = list(set(cc.get_content_ids_from_tokens(raw_ids))) if cc else []  
+        expanded_ids = self._expand_content_ids(content_ids)  
+        stored = 0; gate_vals = []  
         for b in range(ids.shape[0]):  
             with torch.no_grad():  
-                gate=self.amm.write_gate(pooled_mean[b:b+1],surp[b:b+1]).item()  
+                gate = self.amm.write_gate(pooled_mean[b:b+1], surp[b:b+1]).item()  
             gate_vals.append(gate)  
-            if training_mode or gate>=self.c.write_gate_threshold:  
+            if training_mode or gate >= self.c.write_gate_threshold:  
                 self.amm.store_mem(  
-                    pooled_mean[b],surp[b],training_mode,  
-                    source_text=text,content_token_ids=content_ids,  
+                    pooled_mean[b], surp[b], training_mode,  
+                    source_text=text, content_token_ids=content_ids,  
                     content_semantic_emb=content_sem[b],  
-                    content_wte_centroid=wte_centroid,  
                     expanded_content_ids=expanded_ids)  
-                stored+=1  
-        return stored,gate_vals  
+                stored += 1  
+        return stored, gate_vals  
   
     def _refresh_all_memories(self):  
-        entries=list(self.amm.tree.store.values())  
-        texts=[e.source_text for e in entries if e.source_text]  
+        entries = list(self.amm.tree.store.values())  
+        texts = [e.source_text for e in entries if e.source_text]  
         if not texts: return 0  
-        unique_texts=list(dict.fromkeys(texts))  
+        unique_texts = list(dict.fromkeys(texts))  
         self.amm.tree.store.clear()  
-        self.amm.tree.root=_Node()  
-        self.amm.tree.nid=0; self.amm.time=0  
+        self.amm.tree.root = _Node()  
+        self.amm.tree.nid = 0; self.amm.time = 0  
         for text in unique_texts:  
-            self.write(text,training_mode=True)  
+            self.write(text, training_mode=True)  
         return len(unique_texts)  
   
     def generate(self, prompt, mt=50, greedy=False):  
-        tk=self.tok(prompt,return_tensors='pt')  
-        dev=next(self.parameters()).device  
-        ids,mask=tk['input_ids'].to(dev),tk['attention_mask'].to(dev)  
+        tk = self.tok(prompt, return_tensors='pt')  
+        dev = next(self.parameters()).device  
+        ids, mask = tk['input_ids'].to(dev), tk['attention_mask'].to(dev)  
         with torch.no_grad():  
-            o=self.fwd(ids,mask)  
-            prefix,fiber_summary,_,content_bias=self._get_prefix(  
-                o['hs'],mask,update_stats=True,return_extra=True,ids=ids)  
-            vocab_bias=self._compute_vocab_bias(fiber_summary)  
-        has_content=content_bias is not None and content_bias.abs().max().item()>0.01  
-        cc=self.content_classifier  
-        generated_ids=[]  
+            o = self.fwd(ids, mask)  
+            prefix, fiber_summary, _, content_bias = self._get_prefix(  
+                o['hs'], mask, update_stats=True, return_extra=True, ids=ids)  
+            vocab_bias = self._compute_vocab_bias(fiber_summary)  
+        has_content = content_bias is not None and content_bias.abs().max().item() > 0.01  
+        cc = self.content_classifier  
+        domain_anchors = self._compute_domain_anchors(content_bias) if has_content else [[]]  
+        anchors_for_b0 = set(domain_anchors[0]) if domain_anchors else set()  
+        generated_anchors = set()  
+        generated_ids = []  
+        generated_content_counts: Dict[int, int] = {}  
+        consecutive_content = 0  
         for i in range(mt):  
-            if i>0 and i%self.c.retrieval_interval==0:  
+            if i > 0 and i % self.c.retrieval_interval == 0:  
                 with torch.no_grad():  
-                    o=self.fwd(ids,mask,prefix); pl=o['pl']  
-                    prefix,fiber_summary,_,content_bias=self._get_prefix(  
-                        o['hs'],o['mask'],pl,update_stats=True,return_extra=True,ids=ids)  
-                    vocab_bias=self._compute_vocab_bias(fiber_summary)  
-                    has_content=content_bias is not None and content_bias.abs().max().item()>0.01  
+                    o = self.fwd(ids, mask, prefix); pl = o['pl']  
+                    prefix, fiber_summary, _, content_bias = self._get_prefix(  
+                        o['hs'], o['mask'], pl, update_stats=True, return_extra=True, ids=ids)  
+                    vocab_bias = self._compute_vocab_bias(fiber_summary)  
+                    has_content = content_bias is not None and content_bias.abs().max().item() > 0.01  
+                    if has_content:  
+                        domain_anchors = self._compute_domain_anchors(content_bias)  
+                        anchors_for_b0 = set(domain_anchors[0]) if domain_anchors else set()  
             with torch.no_grad():  
-                o=self.fwd(ids,mask,prefix); lg=o['logits'][:,-1:].squeeze(1)  
-                # ── v3.7 双路径 logit bias ──  
-                step_scale_content=max(self.c.content_bias_floor,  
-                                       1.0-i*self.c.content_bias_decay)  
-                step_scale_learned=max(self.c.semantic_boost_floor,  
-                                       1.0-i*self.c.semantic_boost_decay)  
-                # 确定性路径 (主力)  
-                if has_content:  
-                    V=min(lg.shape[-1],content_bias.shape[-1])  
-                    lg[:,:V]=lg[:,:V]+content_bias[:,:V]*self.c.content_bias_scale*step_scale_content  
-                # 学习路径 (辅助)  
-                if vocab_bias is not None:  
-                    V2=min(lg.shape[-1],vocab_bias.shape[-1])  
-                    lg[:,:V2]=lg[:,:V2]+vocab_bias[:,:V2]*self.c.semantic_boost_scale*step_scale_learned  
-                # v3.7: 通用内容词 boost (前几步)  
-                if i<self.c.universal_content_boost_steps and cc is not None and has_content:  
-                    cmask=cc.content_mask(dev)  
-                    V3=min(lg.shape[-1],cmask.shape[0])  
-                    boost_scale=1.0-i/self.c.universal_content_boost_steps  
-                    lg[0,:V3]=lg[0,:V3]+cmask[:V3]*self.c.universal_content_boost*boost_scale  
-                # DegenerationGuard (包含 v3.7 的强惩罚)  
-                if self._degen_guard is not None:  
-                    lg=self._degen_guard.process(lg,generated_ids,i)  
-                if greedy:  
-                    nxt=lg.argmax(-1,keepdim=True)  
+                o = self.fwd(ids, mask, prefix)  
+                lg = o['logits'][:, -1:].squeeze(1).clone()  
+                step_scale_content = max(self.c.content_bias_floor,  
+                                         1.0 - i * self.c.content_bias_decay)  
+                step_scale_learned = max(self.c.semantic_boost_floor,  
+                                         1.0 - i * self.c.semantic_boost_decay)  
+                if i == 0:  
+                    effective_content_scale = step_scale_content * self.c.first_step_content_multiplier  
+                elif consecutive_content >= self.c.structural_rhythm_threshold:  
+                    effective_content_scale = step_scale_content * 0.25  
+                    if cc:  
+                        for fid in list(cc.function_ids)[:5000]:  
+                            if fid < lg.shape[-1]:  
+                                lg[0, fid] += self.c.structural_boost  
                 else:  
-                    lg=lg/self.c.gen_temp; p=F.softmax(lg,-1)  
-                    sp,si=torch.sort(p,descending=True); cs=torch.cumsum(sp,-1)  
-                    rm=cs-sp>self.c.gen_top_p; sp[rm]=0  
-                    total=sp.sum(-1,keepdim=True)  
-                    if (total<1e-10).any(): sp[:,0]=1.0; total=sp.sum(-1,keepdim=True)  
-                    sp=sp/total; nxt=si.gather(-1,torch.multinomial(sp,1))  
-            if nxt.item()==self.tok.eos_token_id and len(generated_ids)>=self.c.degen_min_tokens: break  
-            generated_ids.append(nxt.item())  
-            ids=torch.cat([ids,nxt],1)  
-            mask=torch.cat([mask,torch.ones(1,1,device=dev,dtype=mask.dtype)],1)  
-        return self.tok.decode(ids[0],skip_special_tokens=True)  
+                    effective_content_scale = step_scale_content  
+                if has_content:  
+                    cb_adjusted = content_bias.clone()  
+                    for tid, count in generated_content_counts.items():  
+                        if tid < cb_adjusted.shape[-1]:  
+                            decay = self.c.generated_token_decay ** count  
+                            cb_adjusted[0, tid] *= decay  
+                    V = min(lg.shape[-1], cb_adjusted.shape[-1])  
+                    lg[:, :V] = lg[:, :V] + cb_adjusted[:, :V] * self.c.content_bias_scale * effective_content_scale  
+                if vocab_bias is not None:  
+                    V2 = min(lg.shape[-1], vocab_bias.shape[-1])  
+                    lg[:, :V2] = lg[:, :V2] + vocab_bias[:, :V2] * self.c.semantic_boost_scale * step_scale_learned  
+                if i == 0 and cc is not None:  
+                    cmask = cc.content_mask(dev)  
+                    V3 = min(lg.shape[-1], cmask.shape[0])  
+                    lg[0, :V3] = lg[0, :V3] + cmask[:V3] * self.c.universal_content_boost  
+                elif i < self.c.universal_content_boost_steps and cc is not None and has_content:  
+                    cmask = cc.content_mask(dev)  
+                    V3 = min(lg.shape[-1], cmask.shape[0])  
+                    boost_scale = 1.0 - i / self.c.universal_content_boost_steps  
+                    lg[0, :V3] = lg[0, :V3] + cmask[:V3] * self.c.universal_content_boost * boost_scale  
+                if (i >= self.c.domain_anchor_start_step and anchors_for_b0  
+                        and has_content):  
+                    coverage = len(generated_anchors) / max(len(anchors_for_b0), 1)  
+                    if coverage < self.c.domain_anchor_coverage_threshold:  
+                        unvisited = anchors_for_b0 - generated_anchors  
+                        for tid in unvisited:  
+                            if tid < lg.shape[-1]:  
+                                lg[0, tid] += self.c.domain_anchor_boost  
+                if cc:  
+                    for tid, count in generated_content_counts.items():  
+                        if tid in cc.content_ids and tid < lg.shape[-1]:  
+                            lg[0, tid] -= self.c.content_repeat_penalty * count  
+                if self._degen_guard is not None:  
+                    penalty_mult = self.c.first_step_penalty_multiplier if i == 0 else 1.0  
+                    lg = self._degen_guard.process(lg, generated_ids, i,  
+                                                   first_step_penalty_mult=penalty_mult)  
+                if i < self.c.early_content_steps and cc is not None:  
+                    for pid in cc.punct_ids:  
+                        if pid < lg.shape[-1]: lg[0, pid] = -float('inf')  
+                    for nid in cc.newline_ids:  
+                        if nid < lg.shape[-1]: lg[0, nid] = -float('inf')  
+                if greedy:  
+                    nxt = lg.argmax(-1, keepdim=True)  
+                else:  
+                    lg = lg / self.c.gen_temp; p = F.softmax(lg, -1)  
+                    sp, si = torch.sort(p, descending=True); cs = torch.cumsum(sp, -1)  
+                    rm = cs - sp > self.c.gen_top_p; sp[rm] = 0  
+                    total = sp.sum(-1, keepdim=True)  
+                    if (total < 1e-10).any(): sp[:, 0] = 1.0; total = sp.sum(-1, keepdim=True)  
+                    sp = sp / total; nxt = si.gather(-1, torch.multinomial(sp, 1))  
+            nxt_id = nxt.item()  
+            if nxt_id == self.tok.eos_token_id and len(generated_ids) >= self.c.degen_min_tokens: break  
+            generated_ids.append(nxt_id)  
+            if cc and nxt_id in cc.content_ids:  
+                generated_content_counts[nxt_id] = generated_content_counts.get(nxt_id, 0) + 1  
+                consecutive_content += 1  
+                if nxt_id in anchors_for_b0:  
+                    generated_anchors.add(nxt_id)  
+            else:  
+                consecutive_content = 0  
+            ids = torch.cat([ids, nxt], 1)  
+            mask = torch.cat([mask, torch.ones(1, 1, device=dev, dtype=mask.dtype)], 1)  
+        return self.tok.decode(ids[0], skip_special_tokens=True)  
   
     def save_memory(self, path):  
-        data={'store':{},'nid':self.amm.tree.nid,'time':self.amm.time}  
-        for mid,m in self.amm.tree.store.items():  
-            data['store'][mid]={  
-                'base':m.base.cpu(),'fiber':m.fiber.cpu(),'dirn':m.dirn.cpu(),  
-                'surprise':m.surprise,'ts':m.ts,'last':m.last,'cnt':m.cnt,'version':m.version,  
-                'source_text':m.source_text,  
-                'content_token_ids':m.content_token_ids,  
-                'expanded_content_ids':m.expanded_content_ids,  
-                'semantic_emb':m.semantic_emb.cpu() if m.semantic_emb is not None else None,  
-                'content_wte_centroid':m.content_wte_centroid.cpu() if m.content_wte_centroid is not None else None}  
-        torch.save(data,path)  
+        data = {'store': {}, 'nid': self.amm.tree.nid, 'time': self.amm.time}  
+        for mid, m in self.amm.tree.store.items():  
+            data['store'][mid] = {  
+                'base': m.base.cpu(), 'fiber': m.fiber.cpu(), 'dirn': m.dirn.cpu(),  
+                'surprise': m.surprise, 'ts': m.ts, 'last': m.last, 'cnt': m.cnt, 'version': m.version,  
+                'source_text': m.source_text,  
+                'content_token_ids': m.content_token_ids,  
+                'expanded_content_ids': m.expanded_content_ids,  
+                'semantic_emb': m.semantic_emb.cpu() if m.semantic_emb is not None else None}  
+        torch.save(data, path)  
   
     def load_memory(self, path):  
-        data=torch.load(path,weights_only=False)  
-        self.amm.tree.store.clear(); self.amm.tree.root=_Node()  
-        self.amm.tree.nid=data['nid']; self.amm.time=data['time']  
-        dev=next(self.parameters()).device  
-        for mid,d in data['store'].items():  
-            sem=d.get('semantic_emb',None)  
-            if sem is not None: sem=sem.to(dev)  
-            wte_c=d.get('content_wte_centroid',None)  
-            if wte_c is not None: wte_c=wte_c.to(dev)  
-            m=MemEntry(mid=mid,base=d['base'].to(dev),fiber=d['fiber'].to(dev),  
-                dirn=d['dirn'].to(dev),surprise=d['surprise'],ts=d['ts'],  
-                last=d['last'],cnt=d['cnt'],version=d['version'],  
-                source_text=d.get('source_text',''),  
-                content_token_ids=d.get('content_token_ids',[]),  
-                expanded_content_ids=d.get('expanded_content_ids',[]),  
-                semantic_emb=sem,content_wte_centroid=wte_c)  
+        data = torch.load(path, weights_only=False)  
+        self.amm.tree.store.clear(); self.amm.tree.root = _Node()  
+        self.amm.tree.nid = data['nid']; self.amm.time = data['time']  
+        dev = next(self.parameters()).device  
+        for mid, d in data['store'].items():  
+            sem = d.get('semantic_emb', None)  
+            if sem is not None: sem = sem.to(dev)  
+            m = MemEntry(mid=mid, base=d['base'].to(dev), fiber=d['fiber'].to(dev),  
+                dirn=d['dirn'].to(dev), surprise=d['surprise'], ts=d['ts'],  
+                last=d['last'], cnt=d['cnt'], version=d['version'],  
+                source_text=d.get('source_text', ''),  
+                content_token_ids=d.get('content_token_ids', []),  
+                expanded_content_ids=d.get('expanded_content_ids', []),  
+                semantic_emb=sem)  
             self.amm.tree.insert(m)  
   
 # ═══════════════════════════════════════════════════════════════════  
 # 第19部分 · 谱去混叠  
 # ═══════════════════════════════════════════════════════════════════  
 class SpectralDealiaser:  
-    def __init__(self, amm, c): self.amm=amm; self.c=c  
+    def __init__(self, amm, c): self.amm = amm; self.c = c  
     def detect(self, sim_threshold=0.3):  
-        ms=list(self.amm.tree.store.values())  
-        if len(ms)<2: return []  
-        N=len(ms); bases=torch.stack([m.base for m in ms]); fibers=torch.stack([m.fiber for m in ms])  
-        rd=torch.zeros(N,N,**_dev(bases))  
+        ms = list(self.amm.tree.store.values())  
+        if len(ms) < 2: return []  
+        N = len(ms); bases = torch.stack([m.base for m in ms]); fibers = torch.stack([m.fiber for m in ms])  
+        rd = torch.zeros(N, N, **_dev(bases))  
         for i in range(N):  
-            for j in range(i+1,N):  
-                d=self.amm.metric.midpoint_approx_distance(bases[i:i+1],bases[j:j+1]).item()  
-                rd[i,j]=rd[j,i]=d  
-        pos=rd[rd>0]  
-        sigma=pos.median().clamp(min=0.1) if pos.numel()>0 else torch.tensor(1.0,**_dev(bases))  
-        W=torch.exp(-rd.pow(2)/(2*sigma.pow(2)))  
-        fn=F.normalize(fibers,-1); fs=(fn@fn.T).clamp(0,1)  
-        A=W*fs; A.fill_diagonal_(0); D=A.sum(1); Di=(D+1e-8).pow(-0.5)  
-        L_mat=torch.eye(N,**_dev(A))-Di.unsqueeze(1)*A*Di.unsqueeze(0)  
-        ev,ec=torch.linalg.eigh(L_mat); gaps=ev[1:]-ev[:-1]; mk=max(2,N//3)  
-        k=gaps[:mk].argmax().item()+2; k=min(k,N)  
-        feat=ec[:,:k]; lb=DirectionTree._farthest_kmeans(feat,k)  
-        cls={}  
-        for i,l in enumerate(lb.tolist()): cls.setdefault(l,[]).append(ms[i].mid)  
-        res=[]  
+            for j in range(i+1, N):  
+                d = self.amm.metric.midpoint_approx_distance(bases[i:i+1], bases[j:j+1]).item()  
+                rd[i, j] = rd[j, i] = d  
+        pos = rd[rd > 0]  
+        sigma = pos.median().clamp(min=0.1) if pos.numel() > 0 else torch.tensor(1.0, **_dev(bases))  
+        W = torch.exp(-rd.pow(2) / (2*sigma.pow(2)))  
+        fn = F.normalize(fibers, -1); fs = (fn @ fn.T).clamp(0, 1)  
+        A = W * fs; A.fill_diagonal_(0); D = A.sum(1); Di = (D+1e-8).pow(-0.5)  
+        L_mat = torch.eye(N, **_dev(A)) - Di.unsqueeze(1) * A * Di.unsqueeze(0)  
+        ev, ec = torch.linalg.eigh(L_mat); gaps = ev[1:] - ev[:-1]; mk = max(2, N//3)  
+        k = gaps[:mk].argmax().item() + 2; k = min(k, N)  
+        feat = ec[:, :k]; lb = DirectionTree._farthest_kmeans(feat, k)  
+        cls = {}  
+        for i, l in enumerate(lb.tolist()): cls.setdefault(l, []).append(ms[i].mid)  
+        res = []  
         for cids in cls.values():  
-            if len(cids)<2: continue  
-            cf=torch.stack([self.amm.tree.store[i].fiber for i in cids])  
-            cn=F.normalize(cf,-1); n=len(cids)  
-            avg=(cn@cn.T).triu(1).sum()/(n*(n-1)/2+1e-10)  
-            if avg>sim_threshold: res.append(cids)  
+            if len(cids) < 2: continue  
+            cf = torch.stack([self.amm.tree.store[i].fiber for i in cids])  
+            cn = F.normalize(cf, -1); n = len(cids)  
+            avg = (cn @ cn.T).triu(1).sum() / (n*(n-1)/2 + 1e-10)  
+            if avg > sim_threshold: res.append(cids)  
         return res  
     def dealias(self, ids, steps=50, lr=0.01):  
-        ms=[self.amm.tree.store[i] for i in ids if i in self.amm.tree.store]  
-        if len(ms)<2: return  
-        orig=[m.fiber.clone() for m in ms]  
-        fs=[m.fiber.detach().clone().requires_grad_(True) for m in ms]  
-        opt=torch.optim.Adam(fs,lr=lr)  
+        ms = [self.amm.tree.store[i] for i in ids if i in self.amm.tree.store]  
+        if len(ms) < 2: return  
+        orig = [m.fiber.clone() for m in ms]  
+        fs = [m.fiber.detach().clone().requires_grad_(True) for m in ms]  
+        opt = torch.optim.Adam(fs, lr=lr)  
         for _ in range(steps):  
             opt.zero_grad()  
-            fn=F.normalize(torch.stack(fs),-1); n=len(fs)  
-            mk=~torch.eye(n,dtype=torch.bool,device=fn.device); sim=fn@fn.T  
-            (sim[mk].pow(2).mean()+0.1*sum((fi-oi).pow(2).sum() for fi,oi in zip(fs,orig))/n).backward()  
+            fn = F.normalize(torch.stack(fs), -1); n = len(fs)  
+            mk = ~torch.eye(n, dtype=torch.bool, device=fn.device); sim = fn @ fn.T  
+            (sim[mk].pow(2).mean() + 0.1 * sum((fi-oi).pow(2).sum() for fi, oi in zip(fs, orig)) / n).backward()  
             opt.step()  
-        for fi,m in zip(fs,ms):  
-            nf=fi.detach().clone(); nd=self.amm._compute_dirn(m.base,nf)  
-            self.amm.tree.update(m.mid,new_fiber=nf,new_dirn=nd)  
+        for fi, m in zip(fs, ms):  
+            nf = fi.detach().clone(); nd = self.amm._compute_dirn(m.base, nf)  
+            self.amm.tree.update(m.mid, new_fiber=nf, new_dirn=nd)  
   
 # ═══════════════════════════════════════════════════════════════════  
 # 第20部分 · 训练器  
 # ═══════════════════════════════════════════════════════════════════  
 class Trainer:  
     def __init__(self, m, c):  
-        self.m=m; self.c=c  
-        ps=[p for n,p in m.named_parameters() if p.requires_grad and 'llm' not in n]  
-        self.opt=torch.optim.AdamW(ps,lr=1e-4,weight_decay=0.01)  
-        self.warmup=LossWarmup({  
-            'semantic_probe':c.warmup_steps_probe,'dir_diversity':c.warmup_steps_dd,  
-            'reranker_ranking':c.warmup_steps_rr,'vocab_anchor':c.warmup_steps_va,  
-            'semantic_alignment':c.warmup_steps_sa})  
-        self.grad_monitor=GradientMonitor()  
-        self.grad_monitor.register('ctx_encoder',m.amm.ctx)  
-        self.grad_monitor.register('fib_encoder',m.amm.fib)  
-        self.grad_monitor.register('dir_predictor',m.amm.dir_pred)  
-        self.grad_monitor.register('fiber_connection',m.amm.conn)  
-        self.grad_monitor.register('fiber_attn',m.amm.attn)  
-        self.grad_monitor.register('reranker',m.amm.reranker)  
-        self.grad_monitor.register('qformer',m.bridge.proj)  
-        self.grad_monitor.register('content_bypass',m.bridge.bypass)  
-        self.grad_monitor.register('semantic_probe',m.semantic_probe)  
-        self.grad_monitor.register('layer_pool',m.layer_pool)  
-        self.grad_monitor.register('prefix_aligner',m.bridge.aligner)  
-        self.grad_monitor.register('vocab_proj',m.vocab_proj)  
-        self.layer_weight_history=[]; self._step_count=0  
+        self.m = m; self.c = c  
+        ps = [p for n, p in m.named_parameters() if p.requires_grad and 'llm' not in n]  
+        self.opt = torch.optim.AdamW(ps, lr=1e-4, weight_decay=0.01)  
+        self.warmup = LossWarmup({  
+            'semantic_probe': c.warmup_steps_probe, 'dir_diversity': c.warmup_steps_dd,  
+            'reranker_ranking': c.warmup_steps_rr, 'vocab_anchor': c.warmup_steps_va,  
+            'semantic_alignment': c.warmup_steps_sa})  
+        self.grad_monitor = GradientMonitor()  
+        self.grad_monitor.register('ctx_encoder', m.amm.ctx)  
+        self.grad_monitor.register('fib_encoder', m.amm.fib)  
+        self.grad_monitor.register('dir_predictor', m.amm.dir_pred)  
+        self.grad_monitor.register('fiber_connection', m.amm.conn)  
+        self.grad_monitor.register('fiber_attn', m.amm.attn)  
+        self.grad_monitor.register('reranker', m.amm.reranker)  
+        self.grad_monitor.register('qformer', m.bridge.proj)  
+        self.grad_monitor.register('content_bypass', m.bridge.bypass)  
+        self.grad_monitor.register('semantic_probe', m.semantic_probe)  
+        self.grad_monitor.register('layer_pool', m.layer_pool)  
+        self.grad_monitor.register('prefix_aligner', m.bridge.aligner)  
+        self.grad_monitor.register('vocab_proj', m.vocab_proj)  
+        self.layer_weight_history = []; self._step_count = 0  
   
     def _encode_with_grad(self, texts):  
-        tk=self.m.tok(texts,return_tensors='pt',padding=True,truncation=True)  
-        dev=next(self.m.parameters()).device  
-        ids,mask=tk['input_ids'].to(dev),tk['attention_mask'].to(dev)  
+        tk = self.m.tok(texts, return_tensors='pt', padding=True, truncation=True)  
+        dev = next(self.m.parameters()).device  
+        ids, mask = tk['input_ids'].to(dev), tk['attention_mask'].to(dev)  
         with torch.no_grad():  
-            o=self.m.fwd(ids,mask)  
-            surp=self.m.amm.surprise_proxy(o['logits'][:,:-1],ids[:,1:])  
-        pooled=self.m.layer_pool(o['hs']); pooled_mean=pooled.mean(1)  
-        base=self.m.amm.ctx(pooled_mean)  
-        fiber=self.m.amm.fib(pooled_mean,base,surp)  
-        _=self.m.amm.dir_pred(base,fiber)  
-        return ids,mask,base,fiber,surp,pooled_mean  
+            o = self.m.fwd(ids, mask)  
+            surp = self.m.amm.surprise_proxy(o['logits'][:, :-1], ids[:, 1:])  
+        pooled = self.m.layer_pool(o['hs']); pooled_mean = pooled.mean(1)  
+        base = self.m.amm.ctx(pooled_mean)  
+        fiber = self.m.amm.fib(pooled_mean, base, surp)  
+        _ = self.m.amm.dir_pred(base, fiber)  
+        return ids, mask, base, fiber, surp, pooled_mean  
   
     def encoder_throughput_loss(self, ids, mask, fiber):  
-        B=ids.shape[0]; dev=ids.device  
-        fiber_unsq=fiber.unsqueeze(1); mem_mask_ones=torch.ones(B,1,device=dev)  
-        prefix=self.m.bridge.inject(fiber_unsq,mem_mask_ones,fiber_summary=fiber)  
-        o2=self.m.fwd(ids,mask,prefix)  
-        lg=o2['logits'][:,o2['pl']:-1]; tg=ids[:,1:]  
-        ml=min(lg.shape[1],tg.shape[1])  
-        if ml==0: return torch.tensor(0.0,device=dev,requires_grad=True)  
-        return F.cross_entropy(lg[:,:ml].reshape(-1,lg.shape[-1]),tg[:,:ml].reshape(-1))  
+        B = ids.shape[0]; dev = ids.device  
+        fiber_unsq = fiber.unsqueeze(1); mem_mask_ones = torch.ones(B, 1, device=dev)  
+        prefix = self.m.bridge.inject(fiber_unsq, mem_mask_ones, fiber_summary=fiber)  
+        o2 = self.m.fwd(ids, mask, prefix)  
+        lg = o2['logits'][:, o2['pl']:-1]; tg = ids[:, 1:]  
+        ml = min(lg.shape[1], tg.shape[1])  
+        if ml == 0: return torch.tensor(0.0, device=dev, requires_grad=True)  
+        return F.cross_entropy(lg[:, :ml].reshape(-1, lg.shape[-1]), tg[:, :ml].reshape(-1))  
   
     def semantic_alignment_loss(self, fiber, target_ids, target_mask):  
-        dev=fiber.device; wte=self.m.llm.transformer.wte.weight.detach()  
-        vocab_logits=self.m.vocab_proj(fiber,wte)  
-        B,V=vocab_logits.shape; cc=self.m.content_classifier  
-        if cc is None: return torch.tensor(0.0,device=dev,requires_grad=True)  
-        target=torch.zeros(B,V,device=dev); valid_count=0  
+        dev = fiber.device; wte = self.m.llm.transformer.wte.weight.detach()  
+        vocab_logits = self.m.vocab_proj(fiber, wte)  
+        B, V = vocab_logits.shape; cc = self.m.content_classifier  
+        if cc is None: return torch.tensor(0.0, device=dev, requires_grad=True)  
+        target = torch.zeros(B, V, device=dev); valid_count = 0  
         for b in range(B):  
-            valid=target_ids[b][target_mask[b].bool()].tolist()  
-            content_ids=cc.get_content_ids_from_tokens(valid)  
+            valid = target_ids[b][target_mask[b].bool()].tolist()  
+            content_ids = cc.get_content_ids_from_tokens(valid)  
             if content_ids:  
-                uids=list(set(content_ids)); uids=[uid for uid in uids if uid<V]  
-                if uids: target[b,uids]=1.0/len(uids); valid_count+=1  
-        if valid_count==0: return torch.tensor(0.0,device=dev,requires_grad=True)  
-        log_probs=F.log_softmax(vocab_logits/self.c.semantic_align_temp,dim=-1)  
-        kl=F.kl_div(log_probs,target,reduction='none').sum(-1)  
+                uids = list(set(content_ids)); uids = [uid for uid in uids if uid < V]  
+                if uids: target[b, uids] = 1.0 / len(uids); valid_count += 1  
+        if valid_count == 0: return torch.tensor(0.0, device=dev, requires_grad=True)  
+        log_probs = F.log_softmax(vocab_logits / self.c.semantic_align_temp, dim=-1)  
+        kl = F.kl_div(log_probs, target, reduction='none').sum(-1)  
         return kl.mean()  
   
     def vocab_anchor_loss(self, prefix):  
-        wte=self.m.llm.transformer.wte.weight.detach()  
-        pn=F.normalize(prefix.reshape(-1,prefix.shape[-1]),dim=-1)  
-        wn=F.normalize(wte,dim=-1)  
-        sim=pn@wn.T; topk_sim=sim.topk(self.c.vocab_anchor_topk,dim=-1).values  
+        wte = self.m.llm.transformer.wte.weight.detach()  
+        pn = F.normalize(prefix.reshape(-1, prefix.shape[-1]), dim=-1)  
+        wn = F.normalize(wte, dim=-1)  
+        sim = pn @ wn.T; topk_sim = sim.topk(self.c.vocab_anchor_topk, dim=-1).values  
         return -topk_sim.mean()  
   
     def _recon_forward(self, text):  
-        tk=self.m.tok(text,return_tensors='pt',padding=True,truncation=True)  
-        dev=next(self.m.parameters()).device  
-        ids,mask=tk['input_ids'].to(dev),tk['attention_mask'].to(dev)  
-        with torch.no_grad(): bo=self.m.fwd(ids,mask)  
-        prefix=self.m._get_prefix(bo['hs'],mask,update_stats=False,ids=ids)  
-        o=self.m.fwd(ids,mask,prefix)  
-        lg=o['logits'][:,o['pl']:-1]; tg=ids[:,1:]  
-        ml=min(lg.shape[1],tg.shape[1])  
-        if ml==0:  
-            zero=ids.new_tensor(0.0,dtype=torch.float,requires_grad=True)  
-            return zero,prefix,self.m.bridge._last_fiber_summary  
-        l_r=F.cross_entropy(lg[:,:ml].reshape(-1,lg.shape[-1]),tg[:,:ml].reshape(-1))  
-        fs=self.m.bridge._last_fiber_summary  
-        if fs is None: fs=torch.zeros(1,self.c.d_F,device=dev)  
-        return l_r,prefix,fs  
+        tk = self.m.tok(text, return_tensors='pt', padding=True, truncation=True)  
+        dev = next(self.m.parameters()).device  
+        ids, mask = tk['input_ids'].to(dev), tk['attention_mask'].to(dev)  
+        with torch.no_grad(): bo = self.m.fwd(ids, mask)  
+        prefix = self.m._get_prefix(bo['hs'], mask, update_stats=False, ids=ids)  
+        o = self.m.fwd(ids, mask, prefix)  
+        lg = o['logits'][:, o['pl']:-1]; tg = ids[:, 1:]  
+        ml = min(lg.shape[1], tg.shape[1])  
+        if ml == 0:  
+            zero = ids.new_tensor(0.0, dtype=torch.float, requires_grad=True)  
+            return zero, prefix, self.m.bridge._last_fiber_summary  
+        l_r = F.cross_entropy(lg[:, :ml].reshape(-1, lg.shape[-1]), tg[:, :ml].reshape(-1))  
+        fs = self.m.bridge._last_fiber_summary  
+        if fs is None: fs = torch.zeros(1, self.c.d_F, device=dev)  
+        return l_r, prefix, fs  
   
     def _semantic_probe_loss(self, prefix_batch, fs_batch):  
-        pred=self.m.semantic_probe(prefix_batch)  
-        l_mse=F.mse_loss(pred,fs_batch.detach())  
-        if prefix_batch.shape[0]>=2:  
-            pn=F.normalize(pred,dim=-1); tn=F.normalize(fs_batch.detach(),dim=-1)  
-            sim=pn@tn.T/self.c.probe_contrastive_tau  
-            lb=torch.arange(prefix_batch.shape[0],device=prefix_batch.device)  
-            l_ctr=F.cross_entropy(sim,lb)  
-            return l_mse+0.5*l_ctr  
+        pred = self.m.semantic_probe(prefix_batch)  
+        l_mse = F.mse_loss(pred, fs_batch.detach())  
+        if prefix_batch.shape[0] >= 2:  
+            pn = F.normalize(pred, dim=-1); tn = F.normalize(fs_batch.detach(), dim=-1)  
+            sim = pn @ tn.T / self.c.probe_contrastive_tau  
+            lb = torch.arange(prefix_batch.shape[0], device=prefix_batch.device)  
+            l_ctr = F.cross_entropy(sim, lb)  
+            return l_mse + 0.5 * l_ctr  
         return l_mse  
   
     def contrast(self, texts):  
-        tk=self.m.tok(texts,return_tensors='pt',padding=True,truncation=True)  
-        dev=next(self.m.parameters()).device  
-        ids,mask=tk['input_ids'].to(dev),tk['attention_mask'].to(dev)  
-        with torch.no_grad(): o=self.m.fwd(ids,mask)  
-        _,xq,fq=self.m.extract_state(o['hs'],mask)  
-        x=F.normalize(self.m.amm.contrast_proj_x(xq),-1)  
-        f=F.normalize(self.m.amm.contrast_proj_f(fq),-1)  
-        sxf=x@f.T/self.c.contrast_tau; sfx=f@x.T/self.c.contrast_tau  
-        lb=torch.arange(len(texts),device=dev)  
-        return (F.cross_entropy(sxf,lb)+F.cross_entropy(sfx,lb))/2  
+        tk = self.m.tok(texts, return_tensors='pt', padding=True, truncation=True)  
+        dev = next(self.m.parameters()).device  
+        ids, mask = tk['input_ids'].to(dev), tk['attention_mask'].to(dev)  
+        with torch.no_grad(): o = self.m.fwd(ids, mask)  
+        _, xq, fq = self.m.extract_state(o['hs'], mask)  
+        x = F.normalize(self.m.amm.contrast_proj_x(xq), -1)  
+        f = F.normalize(self.m.amm.contrast_proj_f(fq), -1)  
+        sxf = x @ f.T / self.c.contrast_tau; sfx = f @ x.T / self.c.contrast_tau  
+        lb = torch.arange(len(texts), device=dev)  
+        return (F.cross_entropy(sxf, lb) + F.cross_entropy(sfx, lb)) / 2  
   
     def holonomy_proxy(self, x, f):  
-        sz=0.05; v1=torch.randn_like(x)*sz; v2=torch.randn_like(x)*sz  
-        loop=torch.stack([x,x+v1,x+v1+v2,x+v2,x],1)  
-        return (self.m.amm.trans(f,loop)-f).pow(2).sum(-1).mean()  
+        sz = 0.05; v1 = torch.randn_like(x) * sz; v2 = torch.randn_like(x) * sz  
+        loop = torch.stack([x, x+v1, x+v1+v2, x+v2, x], 1)  
+        return (self.m.amm.trans(f, loop) - f).pow(2).sum(-1).mean()  
   
     def write_policy_loss(self, texts):  
-        tk=self.m.tok(texts,return_tensors='pt',padding=True,truncation=True)  
-        dev=next(self.m.parameters()).device  
-        ids,mask=tk['input_ids'].to(dev),tk['attention_mask'].to(dev)  
+        tk = self.m.tok(texts, return_tensors='pt', padding=True, truncation=True)  
+        dev = next(self.m.parameters()).device  
+        ids, mask = tk['input_ids'].to(dev), tk['attention_mask'].to(dev)  
         with torch.no_grad():  
-            o=self.m.fwd(ids,mask)  
-            surp=self.m.amm.surprise_proxy(o['logits'][:,:-1],ids[:,1:])  
-        pooled=self.m.layer_pool(o['hs']).mean(1)  
-        gates=self.m.amm.write_gate(pooled,surp)  
-        labels=(surp>surp.median()).float()  
-        return F.binary_cross_entropy(gates,labels)  
+            o = self.m.fwd(ids, mask)  
+            surp = self.m.amm.surprise_proxy(o['logits'][:, :-1], ids[:, 1:])  
+        pooled = self.m.layer_pool(o['hs']).mean(1)  
+        gates = self.m.amm.write_gate(pooled, surp)  
+        labels = (surp > surp.median()).float()  
+        return F.binary_cross_entropy(gates, labels)  
   
     def direction_diversity_loss(self, texts):  
-        tk=self.m.tok(texts,return_tensors='pt',padding=True,truncation=True)  
-        dev=next(self.m.parameters()).device  
-        ids,mask=tk['input_ids'].to(dev),tk['attention_mask'].to(dev)  
-        with torch.no_grad(): o=self.m.fwd(ids,mask)  
-        _,xq,fq=self.m.extract_state(o['hs'],mask)  
-        dirs=F.normalize(self.m.amm.dir_pred(xq,fq),dim=-1,eps=1e-8)  
-        dir_sim=(dirs@dirs.T).clamp(-1.0,1.0)  
+        tk = self.m.tok(texts, return_tensors='pt', padding=True, truncation=True)  
+        dev = next(self.m.parameters()).device  
+        ids, mask = tk['input_ids'].to(dev), tk['attention_mask'].to(dev)  
+        with torch.no_grad(): o = self.m.fwd(ids, mask)  
+        _, xq, fq = self.m.extract_state(o['hs'], mask)  
+        dirs = F.normalize(self.m.amm.dir_pred(xq, fq), dim=-1, eps=1e-8)  
+        dir_sim = (dirs @ dirs.T).clamp(-1.0, 1.0)  
         with torch.no_grad():  
-            fn=F.normalize(fq,dim=-1,eps=1e-8); fiber_sim=(fn@fn.T).clamp(-1.0,1.0)  
-        tau=self.c.dir_diversity_tau  
-        dir_prob=torch.sigmoid(dir_sim/tau); fiber_prob=torch.sigmoid(fiber_sim/tau)  
-        B=len(texts); mask_off=~torch.eye(B,dtype=torch.bool,device=dev)  
-        return F.binary_cross_entropy(dir_prob[mask_off],fiber_prob[mask_off].detach())  
+            fn = F.normalize(fq, dim=-1, eps=1e-8); fiber_sim = (fn @ fn.T).clamp(-1.0, 1.0)  
+        tau = self.c.dir_diversity_tau  
+        dir_prob = torch.sigmoid(dir_sim / tau); fiber_prob = torch.sigmoid(fiber_sim / tau)  
+        B = len(texts); mask_off = ~torch.eye(B, dtype=torch.bool, device=dev)  
+        return F.binary_cross_entropy(dir_prob[mask_off], fiber_prob[mask_off].detach())  
   
     def reranker_ranking_loss(self, texts):  
-        store=self.m.amm.tree.store  
-        if len(store)<2:  
-            dev=next(self.m.parameters()).device  
-            return torch.tensor(0.0,device=dev,requires_grad=True)  
-        tk=self.m.tok(texts,return_tensors='pt',padding=True,truncation=True)  
-        dev=next(self.m.parameters()).device  
-        ids,mask=tk['input_ids'].to(dev),tk['attention_mask'].to(dev)  
-        with torch.no_grad(): o=self.m.fwd(ids,mask)  
-        _,xq,fq=self.m.extract_state(o['hs'],mask)  
-        mids=list(store.keys())  
-        cb=torch.stack([store[m].base.to(dev) for m in mids])  
-        cf=torch.stack([store[m].fiber.to(dev) for m in mids])  
-        cd=torch.stack([store[m].dirn.to(dev) for m in mids])  
-        B=xq.shape[0]; qdir=self.m.amm.dir_pred(xq,fq)  
-        dir_sims=torch.einsum('bd,cd->bc',qdir,cd)  
-        cb_e=cb.unsqueeze(0).expand(B,-1,-1); cf_e=cf.unsqueeze(0).expand(B,-1,-1)  
-        scores=self.m.amm.reranker(xq,fq,cb_e,cf_e,dir_sims)  
+        store = self.m.amm.tree.store  
+        if len(store) < 2:  
+            dev = next(self.m.parameters()).device  
+            return torch.tensor(0.0, device=dev, requires_grad=True)  
+        tk = self.m.tok(texts, return_tensors='pt', padding=True, truncation=True)  
+        dev = next(self.m.parameters()).device  
+        ids, mask = tk['input_ids'].to(dev), tk['attention_mask'].to(dev)  
+        with torch.no_grad(): o = self.m.fwd(ids, mask)  
+        _, xq, fq = self.m.extract_state(o['hs'], mask)  
+        mids = list(store.keys())  
+        cb = torch.stack([store[m].base.to(dev) for m in mids])  
+        cf = torch.stack([store[m].fiber.to(dev) for m in mids])  
+        cd = torch.stack([store[m].dirn.to(dev) for m in mids])  
+        B = xq.shape[0]; qdir = self.m.amm.dir_pred(xq, fq)  
+        dir_sims = torch.einsum('bd,cd->bc', qdir, cd)  
+        cb_e = cb.unsqueeze(0).expand(B, -1, -1); cf_e = cf.unsqueeze(0).expand(B, -1, -1)  
+        scores = self.m.amm.reranker(xq, fq, cb_e, cf_e, dir_sims)  
         with torch.no_grad():  
-            fqn=F.normalize(fq,dim=-1); cfn=F.normalize(cf,dim=-1)  
-            relevance=torch.einsum('bd,cd->bc',fqn,cfn)  
-        s_mean=scores.mean(-1,keepdim=True); s_std=scores.std(-1,keepdim=True).clamp(min=1e-6)  
-        r_mean=relevance.mean(-1,keepdim=True); r_std=relevance.std(-1,keepdim=True).clamp(min=1e-6)  
-        sn=(scores-s_mean)/s_std; rn=(relevance-r_mean)/r_std  
-        return F.mse_loss(sn,rn.detach())  
+            fqn = F.normalize(fq, dim=-1); cfn = F.normalize(cf, dim=-1)  
+            relevance = torch.einsum('bd,cd->bc', fqn, cfn)  
+        s_mean = scores.mean(-1, keepdim=True); s_std = scores.std(-1, keepdim=True).clamp(min=1e-6)  
+        r_mean = relevance.mean(-1, keepdim=True); r_std = relevance.std(-1, keepdim=True).clamp(min=1e-6)  
+        sn = (scores - s_mean) / s_std; rn = (relevance - r_mean) / r_std  
+        return F.mse_loss(sn, rn.detach())  
   
     def step(self, texts):  
         self.m.train(); self.opt.zero_grad()  
-        dev=next(self.m.parameters()).device; W=self.c.loss_weights  
-        ids_enc,mask_enc,base,fiber,surp,pooled_mean=self._encode_with_grad(texts)  
-        l_et=self.encoder_throughput_loss(ids_enc,mask_enc,fiber)  
-        w_sa=self.warmup.weight('semantic_alignment')  
-        l_sa=self.semantic_alignment_loss(fiber,ids_enc,mask_enc)*w_sa  
-        all_lr=[]; all_pf=[]; all_fs=[]  
+        dev = next(self.m.parameters()).device; W = self.c.loss_weights  
+        ids_enc, mask_enc, base, fiber, surp, pooled_mean = self._encode_with_grad(texts)  
+        l_et = self.encoder_throughput_loss(ids_enc, mask_enc, fiber)  
+        w_sa = self.warmup.weight('semantic_alignment')  
+        l_sa = self.semantic_alignment_loss(fiber, ids_enc, mask_enc) * w_sa  
+        all_lr = []; all_pf = []; all_fs = []  
         for t in texts:  
-            lr,pf,fs=self._recon_forward(t)  
+            lr, pf, fs = self._recon_forward(t)  
             all_lr.append(lr); all_pf.append(pf)  
-            all_fs.append(fs if fs is not None else torch.zeros(1,self.c.d_F,device=dev))  
-        l_r=sum(all_lr)/len(texts)  
-        pf_batch=torch.cat(all_pf,0); fs_batch=torch.cat(all_fs,0)  
-        w_sp=self.warmup.weight('semantic_probe')  
-        l_sp=self._semantic_probe_loss(pf_batch,fs_batch)*w_sp  
-        w_va=self.warmup.weight('vocab_anchor')  
-        l_va=self.vocab_anchor_loss(pf_batch)*w_va  
-        l_c=self.contrast(texts) if len(texts)>=2 else torch.tensor(0.0,device=dev)  
+            all_fs.append(fs if fs is not None else torch.zeros(1, self.c.d_F, device=dev))  
+        l_r = sum(all_lr) / len(texts)  
+        pf_batch = torch.cat(all_pf, 0); fs_batch = torch.cat(all_fs, 0)  
+        w_sp = self.warmup.weight('semantic_probe')  
+        l_sp = self._semantic_probe_loss(pf_batch, fs_batch) * w_sp  
+        w_va = self.warmup.weight('vocab_anchor')  
+        l_va = self.vocab_anchor_loss(pf_batch) * w_va  
+        l_c = self.contrast(texts) if len(texts) >= 2 else torch.tensor(0.0, device=dev)  
         with torch.no_grad():  
-            tk2=self.m.tok(texts,return_tensors='pt',padding=True,truncation=True)  
-            ids2,mask2=tk2['input_ids'].to(dev),tk2['attention_mask'].to(dev)  
-            o2=self.m.fwd(ids2,mask2)  
-        _,xq2,fq2=self.m.extract_state(o2['hs'],mask2)  
-        l_h=self.holonomy_proxy(xq2,fq2)  
-        l_w=self.write_policy_loss(texts)  
-        w_dd=self.warmup.weight('dir_diversity')  
-        l_dd=(self.direction_diversity_loss(texts) if len(texts)>=2  
-              else torch.tensor(0.0,device=dev))*w_dd  
-        w_rr=self.warmup.weight('reranker_ranking')  
-        l_rr=self.reranker_ranking_loss(texts)*w_rr  
-        loss=(W['recon']*l_r+W['semantic_alignment']*l_sa+  
-              W['encoder_throughput']*l_et+W['contrast']*l_c+  
-              W['holonomy']*l_h+W['write_policy']*l_w+  
-              W['semantic_probe']*l_sp+W['dir_diversity']*l_dd+  
-              W['reranker_ranking']*l_rr+W['vocab_anchor']*l_va)  
+            tk2 = self.m.tok(texts, return_tensors='pt', padding=True, truncation=True)  
+            ids2, mask2 = tk2['input_ids'].to(dev), tk2['attention_mask'].to(dev)  
+            o2 = self.m.fwd(ids2, mask2)  
+        _, xq2, fq2 = self.m.extract_state(o2['hs'], mask2)  
+        l_h = self.holonomy_proxy(xq2, fq2)  
+        l_w = self.write_policy_loss(texts)  
+        w_dd = self.warmup.weight('dir_diversity')  
+        l_dd = (self.direction_diversity_loss(texts) if len(texts) >= 2  
+                else torch.tensor(0.0, device=dev)) * w_dd  
+        w_rr = self.warmup.weight('reranker_ranking')  
+        l_rr = self.reranker_ranking_loss(texts) * w_rr  
+        loss = (W['recon']*l_r + W['semantic_alignment']*l_sa +  
+                W['encoder_throughput']*l_et + W['contrast']*l_c +  
+                W['holonomy']*l_h + W['write_policy']*l_w +  
+                W['semantic_probe']*l_sp + W['dir_diversity']*l_dd +  
+                W['reranker_ranking']*l_rr + W['vocab_anchor']*l_va)  
         loss.backward()  
         nn.utils.clip_grad_norm_(  
-            [p for n,p in self.m.named_parameters() if p.requires_grad and 'llm' not in n],1.)  
-        self.opt.step(); self.warmup.advance(); self._step_count+=1  
-        grad_norms=self.grad_monitor.snapshot()  
+            [p for n, p in self.m.named_parameters() if p.requires_grad and 'llm' not in n], 1.)  
+        self.opt.step(); self.warmup.advance(); self._step_count += 1  
+        grad_norms = self.grad_monitor.snapshot()  
         self.layer_weight_history.append(self.m.layer_pool.weight_dist().cpu().numpy().copy())  
-        if self._step_count%self.c.refresh_memories_every==0:  
+        if self._step_count % self.c.refresh_memories_every == 0:  
             self.m.eval()  
             with torch.no_grad(): self.m._refresh_all_memories()  
             self.m.train()  
         self.m.eval()  
         return {  
-            'total':loss.item(),'recon':l_r.item(),'contrast':l_c.item(),  
-            'holonomy':l_h.item(),'write_policy':l_w.item(),  
-            'semantic_probe':l_sp.item(),'dir_diversity':l_dd.item(),  
-            'reranker_ranking':l_rr.item(),'encoder_throughput':l_et.item(),  
-            'vocab_anchor':l_va.item(),'semantic_alignment':l_sa.item(),  
-            'warmup_sp':w_sp,'warmup_dd':w_dd,'warmup_rr':w_rr,'warmup_va':w_va,'warmup_sa':w_sa,  
-            'grad_norms':grad_norms,  
-            'bypass_gate':self.m.bridge._last_inject_diag.get('bypass_gate',None),  
-            'aligner_scale':self.m.bridge._last_inject_diag.get('aligner_scale',None),  
-            'loss_weights':W}  
+            'total': loss.item(), 'recon': l_r.item(), 'contrast': l_c.item(),  
+            'holonomy': l_h.item(), 'write_policy': l_w.item(),  
+            'semantic_probe': l_sp.item(), 'dir_diversity': l_dd.item(),  
+            'reranker_ranking': l_rr.item(), 'encoder_throughput': l_et.item(),  
+            'vocab_anchor': l_va.item(), 'semantic_alignment': l_sa.item(),  
+            'warmup_sp': w_sp, 'warmup_dd': w_dd, 'warmup_rr': w_rr, 'warmup_va': w_va, 'warmup_sa': w_sa,  
+            'grad_norms': grad_norms,  
+            'bypass_gate': self.m.bridge._last_inject_diag.get('bypass_gate', None),  
+            'aligner_scale': self.m.bridge._last_inject_diag.get('aligner_scale', None),  
+            'loss_weights': W}  
   
 # ═══════════════════════════════════════════════════════════════════  
 # 第21部分 · 测试  
 # ═══════════════════════════════════════════════════════════════════  
 class TestResults:  
-    def __init__(self): self.passed=0; self.failed=0; self.errors=[]  
+    def __init__(self): self.passed = 0; self.failed = 0; self.errors = []  
     def check(self, name, cond, msg=""):  
-        if cond: self.passed+=1; print(f"  ✓ {name}")  
-        else: self.failed+=1; self.errors.append(f"{name}: {msg}"); print(f"  ✗ {name}: {msg}")  
+        if cond: self.passed += 1; print(f"  ✓ {name}")  
+        else: self.failed += 1; self.errors.append(f"{name}: {msg}"); print(f"  ✗ {name}: {msg}")  
     def summary(self):  
-        t=self.passed+self.failed  
+        t = self.passed + self.failed  
         print(f"\n{'='*60}\n  {self.passed}/{t} passed, {self.failed} failed")  
         if self.errors:  
             print("  失败项:")  
             for e in self.errors: print(f"    - {e}")  
-        return self.failed==0  
+        return self.failed == 0  
   
 def test_properties(m, c, R):  
     print("\n── 性质测试 ──")  
-    dev=next(m.parameters()).device  
-    xt=torch.randn(4,c.d_M,device=dev); g=m.amm.metric(xt)  
-    ev=torch.linalg.eigvalsh(g); R.check("metric_spd",(ev>0).all().item(),f"λ_min={ev.min():.6f}")  
-    G=m.amm.metric.christoffel(xt[:1]); sym=(G-G.permute(0,1,3,2)).abs().max().item()  
-    R.check("christoffel_sym",sym<1e-5,f"err={sym:.2e}")  
-    A=m.amm.conn(xt[:1],torch.randn(1,c.d_M,device=dev))  
-    asym=(A+A.transpose(1,2)).abs().max().item()  
-    R.check("connection_antisym",asym<1e-5,f"err={asym:.2e}")  
-    xs=torch.randn(1,c.d_M,device=dev)*0.3; xe=torch.randn(1,c.d_M,device=dev)*0.3  
-    gr=m.amm.geo.solve(xs,xe)  
-    R.check("geodesic_converged",gr.converged,f"iters={gr.iterations}")  
-    R.check("geodesic_start_fixed",(gr.path[:,0]-xs).norm().item()<1e-5)  
-    R.check("geodesic_end_fixed",(gr.path[:,-1]-xe).norm().item()<1e-5)  
-    R.check("geodesic_energy_finite",gr.energy<1e6 and gr.energy==gr.energy)  
-    f0=torch.randn(1,c.d_F,device=dev); f_rk4=m.amm.trans(f0,gr.path)  
-    dr=abs(f_rk4.norm().item()-f0.norm().item())/f0.norm().item()  
-    R.check("rk4_norm_preservation",dr<0.05,f"drift={dr:.4f}")  
+    dev = next(m.parameters()).device  
+    xt = torch.randn(4, c.d_M, device=dev); g = m.amm.metric(xt)  
+    ev = torch.linalg.eigvalsh(g); R.check("metric_spd", (ev > 0).all().item(), f"λ_min={ev.min():.6f}")  
+    G = m.amm.metric.christoffel(xt[:1]); sym = (G - G.permute(0, 1, 3, 2)).abs().max().item()  
+    R.check("christoffel_sym", sym < 1e-5, f"err={sym:.2e}")  
+    A = m.amm.conn(xt[:1], torch.randn(1, c.d_M, device=dev))  
+    asym = (A + A.transpose(1, 2)).abs().max().item()  
+    R.check("connection_antisym", asym < 1e-5, f"err={asym:.2e}")  
+    xs = torch.randn(1, c.d_M, device=dev) * 0.3; xe = torch.randn(1, c.d_M, device=dev) * 0.3  
+    gr = m.amm.geo.solve(xs, xe)  
+    R.check("geodesic_converged", gr.converged, f"iters={gr.iterations}")  
+    R.check("geodesic_start_fixed", (gr.path[:, 0] - xs).norm().item() < 1e-5)  
+    R.check("geodesic_end_fixed", (gr.path[:, -1] - xe).norm().item() < 1e-5)  
+    R.check("geodesic_energy_finite", gr.energy < 1e6 and gr.energy == gr.energy)  
+    f0 = torch.randn(1, c.d_F, device=dev); f_rk4 = m.amm.trans(f0, gr.path)  
+    dr = abs(f_rk4.norm().item() - f0.norm().item()) / f0.norm().item()  
+    R.check("rk4_norm_preservation", dr < 0.05, f"drift={dr:.4f}")  
   
 def test_geodesic_gradient(m, c, R):  
     print("\n── 测地线梯度测试 ──")  
-    dev=next(m.parameters()).device  
-    xs=torch.randn(1,c.d_M,device=dev); xe=torch.randn(1,c.d_M,device=dev,requires_grad=True)  
-    gr=m.amm.geo.solve(xs,xe); f0=torch.randn(1,c.d_F,device=dev)  
-    ft=m.amm.trans(f0,gr.path); ft.sum().backward()  
-    R.check("geo_endpoint_grad_exists",xe.grad is not None and xe.grad.abs().max().item()>0)  
+    dev = next(m.parameters()).device  
+    xs = torch.randn(1, c.d_M, device=dev); xe = torch.randn(1, c.d_M, device=dev, requires_grad=True)  
+    gr = m.amm.geo.solve(xs, xe); f0 = torch.randn(1, c.d_F, device=dev)  
+    ft = m.amm.trans(f0, gr.path); ft.sum().backward()  
+    R.check("geo_endpoint_grad_exists", xe.grad is not None and xe.grad.abs().max().item() > 0)  
   
 def test_geodesic_no_grad(m, c, R):  
     print("\n── 测地线 no_grad 测试 ──")  
-    dev=next(m.parameters()).device  
-    xs=torch.randn(1,c.d_M,device=dev); xe=torch.randn(1,c.d_M,device=dev)  
-    with torch.no_grad(): gr=m.amm.geo.solve(xs,xe)  
-    R.check("geo_nograd_ok",True)  
-    R.check("geo_nograd_finite",gr.path.isfinite().all().item())  
+    dev = next(m.parameters()).device  
+    xs = torch.randn(1, c.d_M, device=dev); xe = torch.randn(1, c.d_M, device=dev)  
+    with torch.no_grad(): gr = m.amm.geo.solve(xs, xe)  
+    R.check("geo_nograd_ok", True)  
+    R.check("geo_nograd_finite", gr.path.isfinite().all().item())  
   
 def test_contrast_dimensions(m, c, R):  
     print("\n── 对比损失维度测试 ──")  
-    trainer=Trainer(m,c); m.train()  
+    trainer = Trainer(m, c); m.train()  
     try:  
-        l_c=trainer.contrast(["Hello world.","Goodbye moon."])  
-        R.check("contrast_no_crash",True); R.check("contrast_finite",l_c.isfinite().item())  
-        l_c.backward(); pg=m.amm.contrast_proj_f.weight.grad  
-        R.check("contrast_proj_f_grad",pg is not None and pg.abs().max().item()>0)  
-    except Exception as e: R.check("contrast_no_crash",False,str(e))  
+        l_c = trainer.contrast(["Hello world.", "Goodbye moon."])  
+        R.check("contrast_no_crash", True); R.check("contrast_finite", l_c.isfinite().item())  
+        l_c.backward(); pg = m.amm.contrast_proj_f.weight.grad  
+        R.check("contrast_proj_f_grad", pg is not None and pg.abs().max().item() > 0)  
+    except Exception as e: R.check("contrast_no_crash", False, str(e))  
     m.zero_grad(); m.eval()  
   
 def test_content_classifier(m, c, R):  
     print("\n── 内容词分类器测试 ──")  
-    cc=m.content_classifier  
-    R.check("cc_exists",cc is not None)  
+    cc = m.content_classifier  
+    R.check("cc_exists", cc is not None)  
     if cc:  
-        R.check("cc_has_content",len(cc.content_ids)>100,f"n={len(cc.content_ids)}")  
-        dev=next(m.parameters()).device; cmask=cc.content_mask(dev)  
-        R.check("cc_mask_shape",cmask.dim()==1 and cmask.shape[0]>0)  
-        pos=cc.get_content_positions([220,12519,329,40481],[True]*4)  
-        R.check("cc_get_content_positions_works",isinstance(pos,list))  
+        R.check("cc_has_content", len(cc.content_ids) > 100, f"n={len(cc.content_ids)}")  
+        dev = next(m.parameters()).device; cmask = cc.content_mask(dev)  
+        R.check("cc_mask_shape", cmask.dim() == 1 and cmask.shape[0] > 0)  
+        R.check("cc_has_starters", len(cc.starter_ids) > 5, f"n={len(cc.starter_ids)}")  
   
 def test_wte_neighbor_cache(m, c, R):  
     print("\n── WTE 邻居缓存测试 ──")  
-    R.check("wte_cache_exists",m._wte_neighbor_cache is not None)  
+    R.check("wte_cache_exists", m._wte_neighbor_cache is not None)  
     if m._wte_neighbor_cache:  
-        R.check("wte_cache_nonempty",len(m._wte_neighbor_cache)>0,  
+        R.check("wte_cache_nonempty", len(m._wte_neighbor_cache) > 0,  
             f"n={len(m._wte_neighbor_cache)}")  
-        sample_key=next(iter(m._wte_neighbor_cache))  
-        sample_val=m._wte_neighbor_cache[sample_key]  
-        R.check("wte_cache_value_is_list",isinstance(sample_val,list))  
-        piano_ids=[i for i in m.content_classifier.content_ids  
-                   if 'piano' in m.tok.decode([i]).lower()]  
-        if piano_ids:  
-            pid=piano_ids[0]  
-            neighbors=m._wte_neighbor_cache.get(pid,[])  
-            if neighbors:  
-                n_toks=[m.tok.decode([n]).strip() for n in neighbors[:5]]  
-                print(f"    piano neighbors: {n_toks}")  
-            R.check("wte_piano_has_neighbors",len(neighbors)>=0)  
   
-def test_content_semantic_emb(m, c, R):  
-    print("\n── Content-Position-Only 语义嵌入测试 ──")  
-    dev=next(m.parameters()).device  
-    # 音乐文本  
-    tk1=m.tok("He practiced piano Chopin nocturne",return_tensors='pt')  
-    ids1,mask1=tk1['input_ids'].to(dev),tk1['attention_mask'].to(dev)  
-    with torch.no_grad():  
-        o1=m.fwd(ids1,mask1); pooled1=m.layer_pool(o1['hs'])  
-    sem1=m._compute_content_semantic_emb(pooled1,ids1,mask1)  
-    R.check("csem_shape",sem1.shape==(1,c.d_LLM),f"shape={sem1.shape}")  
-    R.check("csem_finite",sem1.isfinite().all().item())  
-    R.check("csem_nonzero",sem1.abs().max().item()>0)  
-    # 太空文本  
-    tk2=m.tok("The telescope revealed distant galaxies",return_tensors='pt')  
-    ids2,mask2=tk2['input_ids'].to(dev),tk2['attention_mask'].to(dev)  
-    with torch.no_grad():  
-        o2=m.fwd(ids2,mask2); pooled2=m.layer_pool(o2['hs'])  
-    sem2=m._compute_content_semantic_emb(pooled2,ids2,mask2)  
-    # 全位置均值  
-    mean1=pooled1.mean(1); mean2=pooled2.mean(1)  
-    # content-only应该比全位置均值更具域区分性  
-    csim=F.cosine_similarity(sem1,sem2).item()  
-    msim=F.cosine_similarity(mean1,mean2).item()  
-    print(f"    content-only cosine(music,space)={csim:.4f}")  
-    print(f"    mean-all cosine(music,space)={msim:.4f}")  
-    R.check("csem_more_discriminative",csim<msim or csim<0.95,  
-        f"content_sim={csim:.4f}, mean_sim={msim:.4f}")  
+def test_expanded_overlap_gating(m, c, R):  
+    print("\n── 扩展重叠门控测试 (v3.12 核心) ──")  
+    cc = m.content_classifier  
+    # 获取真实 token IDs  
+    piano_ids = cc.get_content_ids_from_tokens(m.tok.encode("piano practice"))  
+    piano_expanded = m._expand_content_ids(piano_ids)  
+    music_mem_ids = cc.get_content_ids_from_tokens(  
+        m.tok.encode("practiced piano hours perfecting difficult Chopin nocturne"))  
+    space_mem_ids = cc.get_content_ids_from_tokens(  
+        m.tok.encode("telescope revealed distant galaxies Milky Way"))  
+    # 扩展重叠: query expanded ∩ memory exact  
+    music_overlap = AMM._compute_expanded_overlap_count(piano_expanded, music_mem_ids)  
+    space_overlap = AMM._compute_expanded_overlap_count(piano_expanded, space_mem_ids)  
+    print(f"    piano_expanded ({len(piano_expanded)} tokens) ∩ music_mem ({len(music_mem_ids)}): {music_overlap}")  
+    print(f"    piano_expanded ({len(piano_expanded)} tokens) ∩ space_mem ({len(space_mem_ids)}): {space_overlap}")  
+    R.check("expanded_overlap_music_positive", music_overlap > 0,  
+        f"music_overlap={music_overlap}")  
+    R.check("expanded_overlap_space_zero", space_overlap == 0,  
+        f"space_overlap={space_overlap}")  
+    # 验证扩展包含原始 IDs  
+    piano_exact_set = set(piano_ids)  
+    piano_expanded_set = set(piano_expanded)  
+    R.check("expansion_superset", piano_exact_set.issubset(piano_expanded_set))  
+    R.check("expansion_adds_neighbors", len(piano_expanded_set) > len(piano_exact_set),  
+        f"exact={len(piano_exact_set)}, expanded={len(piano_expanded_set)}")  
+    # 打印扩展词汇  
+    expanded_only = piano_expanded_set - piano_exact_set  
+    expanded_words = [m.tok.decode([t]).strip() for t in list(expanded_only)[:8]]  
+    exact_words = [m.tok.decode([t]).strip() for t in piano_ids[:5]]  
+    print(f"    exact: {exact_words}")  
+    print(f"    expanded neighbors: {expanded_words}")  
   
-def test_semantic_retrieval(m, c, R):  
-    print("\n── 语义嵌入检索测试 (v3.7) ──")  
-    m.amm.tree.store.clear(); m.amm.tree.root=_Node(); m.amm.tree.nid=0; m.amm.time=0  
-    m.write("He practiced piano for hours perfecting a difficult Chopin nocturne.",training_mode=True)  
-    m.write("She studied music theory and harmonic progression at the conservatory.",training_mode=True)  
-    m.write("The telescope revealed distant galaxies beyond the Milky Way.",training_mode=True)  
-    m.write("Astronauts trained for the Mars mission in simulated zero gravity.",training_mode=True)  
-    m.eval(); dev=next(m.parameters()).device  
-    # 钢琴 query  
-    tk=m.tok("Tell me about piano practice.",return_tensors='pt')  
-    ids,mask=tk['input_ids'].to(dev),tk['attention_mask'].to(dev)  
+def test_directional_maxsim(m, c, R):  
+    print("\n── 方向性 MaxSim 测试 ──")  
+    wte_n = m._wte_normed  
+    piano_ids = m.content_classifier.get_content_ids_from_tokens(m.tok.encode("piano practice Chopin"))  
+    music_mem_ids = m.content_classifier.get_content_ids_from_tokens(  
+        m.tok.encode("practiced piano hours perfecting difficult Chopin nocturne"))  
+    space_mem_ids = m.content_classifier.get_content_ids_from_tokens(  
+        m.tok.encode("telescope revealed distant galaxies Milky Way"))  
+    fwd_music = AMM._compute_forward_maxsim(piano_ids, music_mem_ids, wte_n)  
+    fwd_space = AMM._compute_forward_maxsim(piano_ids, space_mem_ids, wte_n)  
+    print(f"    piano→music: fwd={fwd_music:.4f}")  
+    print(f"    piano→space: fwd={fwd_space:.4f}")  
+    R.check("fwd_maxsim_music_wins", fwd_music > fwd_space,  
+        f"music={fwd_music:.4f}, space={fwd_space:.4f}")  
+  
+def test_token_overlap(m, c, R):  
+    print("\n── Token Overlap 计算测试 ──")  
+    ov1 = AMM._compute_token_overlap([10, 20, 30], [20, 30, 40])  
+    R.check("overlap_partial", abs(ov1 - 2/3) < 1e-6, f"expected=0.667, got={ov1:.4f}")  
+    ov2 = AMM._compute_token_overlap([10, 20], [10, 20])  
+    R.check("overlap_full", abs(ov2 - 1.0) < 1e-6, f"expected=1.0, got={ov2:.4f}")  
+    ov3 = AMM._compute_token_overlap([10, 20], [30, 40])  
+    R.check("overlap_zero", abs(ov3 - 0.0) < 1e-6, f"expected=0.0, got={ov3:.4f}")  
+    # expanded overlap count  
+    eov1 = AMM._compute_expanded_overlap_count([10, 20, 30, 40], [20, 40, 50])  
+    R.check("expanded_overlap_count", eov1 == 2, f"expected=2, got={eov1}")  
+    eov2 = AMM._compute_expanded_overlap_count([10, 20], [30, 40])  
+    R.check("expanded_overlap_count_zero", eov2 == 0, f"expected=0, got={eov2}")  
+  
+def test_consolidation_domain_guard(m, c, R):  
+    print("\n── 合并域守卫测试 (v3.12 consol_maxsim=0.40) ──")  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
+    m.write("He practiced piano for hours perfecting a difficult Chopin nocturne.", training_mode=True)  
+    m.write("The telescope revealed distant galaxies beyond the Milky Way.", training_mode=True)  
+    n_mems = len(m.amm.tree.store)  
+    print(f"    After writing 2 texts: {n_mems} memories")  
+    R.check("domain_guard_separate_mems", n_mems >= 2,  
+        f"expected >=2, got {n_mems}")  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
+  
+def test_retrieval_filtering(m, c, R):  
+    print("\n── 检索过滤测试 (v3.12 expanded overlap gating) ──")  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
+    m.write("He practiced piano for hours perfecting a difficult Chopin nocturne.", training_mode=True)  
+    m.write("She studied music theory and harmonic progression at the conservatory.", training_mode=True)  
+    m.write("The telescope revealed distant galaxies beyond the Milky Way.", training_mode=True)  
+    m.write("Astronauts trained for the Mars mission in simulated zero gravity.", training_mode=True)  
+    m.eval(); dev = next(m.parameters()).device  
+    tk = m.tok("Tell me about piano practice.", return_tensors='pt')  
+    ids, mask = tk['input_ids'].to(dev), tk['attention_mask'].to(dev)  
     with torch.no_grad():  
-        o=m.fwd(ids,mask)  
-        _,_,_,content_bias=m._get_prefix(o['hs'],mask,update_stats=False,return_extra=True,ids=ids)  
-    top10_ids=content_bias[0].topk(10).indices.tolist()  
-    top10_toks=[m.tok.decode([t]).strip().lower() for t in top10_ids]  
-    has_music=any(w in top10_toks for w in ['piano','chopin','nocturne','practiced',  
-        'perfecting','difficult','music','theory','harmonic','harmony',  
-        'progression','conservatory','studied','hours'])  
-    has_space=any(w in top10_toks for w in ['telescope','galaxies','galaxy','distant',  
-        'astronauts','mars','gravity','mission','zero','milky','revealed'])  
-    R.check("sem_ret_music_query_has_music",has_music,f"top10={top10_toks}")  
-    R.check("sem_ret_music_query_no_space",not has_space or has_music,  
-        f"top10={top10_toks}")  
-    print(f"    piano query → content_bias top10: {top10_toks}")  
-    # 太空 query  
-    tk2=m.tok("The space telescope observes distant stars.",return_tensors='pt')  
-    ids2,mask2=tk2['input_ids'].to(dev),tk2['attention_mask'].to(dev)  
+        o = m.fwd(ids, mask)  
+        prefix, fiber_summary, diag, content_bias = m._get_prefix(  
+            o['hs'], mask, update_stats=False, return_extra=True, ids=ids)  
+    print(f"    n_candidates_initial={diag.n_candidates_initial}")  
+    print(f"    n_overlap_pass={diag.n_overlap_pass}")  
+    print(f"    n_fwd_only_pass={diag.n_fwd_only_pass}")  
+    print(f"    n_after_hard_filter={diag.n_after_hard_filter}")  
+    print(f"    n_after_score_filter={diag.n_after_score_filter}")  
+    print(f"    top_forward_maxsim={diag.top_forward_maxsim:.4f}")  
+    music_weight = 0.0; space_weight = 0.0  
+    for mid, w in diag.batch_mem_weights[0]:  
+        if mid in m.amm.tree.store:  
+            mem = m.amm.tree.store[mid]  
+            text = mem.source_text.lower()  
+            if 'piano' in text or 'music' in text: music_weight += w  
+            elif 'telescope' in text or 'astronaut' in text: space_weight += w  
+    print(f"    music_weight={music_weight:.4f}, space_weight={space_weight:.4f}")  
+    R.check("retrieval_music_dominant", music_weight > space_weight,  
+        f"music={music_weight:.4f}, space={space_weight:.4f}")  
+    R.check("retrieval_music_strong", music_weight > 0.8,  
+        f"music_weight={music_weight:.4f}")  
+    R.check("retrieval_space_filtered", space_weight < 0.1,  
+        f"space_weight={space_weight:.4f}")  
+    # v3.12: 验证 overlap gating 过滤了太空记忆  
+    R.check("retrieval_overlap_effective", diag.n_overlap_pass >= 1,  
+        f"n_overlap_pass={diag.n_overlap_pass}")  
+    # 检查 per_memory_forward_maxsim 已填充  
+    R.check("per_mem_fwd_populated", len(diag.per_memory_forward_maxsim) > 0,  
+        f"n={len(diag.per_memory_forward_maxsim)}")  
+    top10_ids = content_bias[0].topk(10).indices.tolist()  
+    top10_toks = [m.tok.decode([t]).strip().lower() for t in top10_ids]  
+    print(f"    piano query → bias top10: {top10_toks}")  
+    has_music = any(w in top10_toks for w in ['piano', 'chopin', 'nocturne', 'practiced',  
+        'perfecting', 'difficult', 'music', 'theory', 'harmonic', 'harmony',  
+        'progression', 'conservatory', 'studied'])  
+    has_space = any(w in top10_toks for w in ['telescope', 'galaxies', 'galaxy', 'distant',  
+        'astronauts', 'mars', 'gravity', 'mission', 'milky', 'revealed'])  
+    R.check("retrieval_bias_has_music", has_music, f"top10={top10_toks}")  
+    R.check("retrieval_bias_no_space", not has_space, f"top10={top10_toks}")  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
+  
+def test_content_wte_injection(m, c, R):  
+    print("\n── Content WTE Prefix Injection 测试 ──")  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
+    m.write("He practiced piano for hours perfecting a difficult Chopin nocturne.", training_mode=True)  
+    m.eval(); dev = next(m.parameters()).device  
+    tk = m.tok("Tell me about piano.", return_tensors='pt')  
+    ids, mask = tk['input_ids'].to(dev), tk['attention_mask'].to(dev)  
     with torch.no_grad():  
-        o2=m.fwd(ids2,mask2)  
-        _,_,_,cb2=m._get_prefix(o2['hs'],mask2,update_stats=False,return_extra=True,ids=ids2)  
-    top10_ids2=cb2[0].topk(10).indices.tolist()  
-    top10_toks2=[m.tok.decode([t]).strip().lower() for t in top10_ids2]  
-    has_space2=any(w in top10_toks2 for w in ['telescope','galaxies','galaxy','distant',  
-        'astronauts','mars','gravity','mission','zero','milky','revealed','spectrum'])  
-    R.check("sem_ret_space_query_has_space",has_space2,f"top10={top10_toks2}")  
-    print(f"    space query → content_bias top10: {top10_toks2}")  
-    m.amm.tree.store.clear(); m.amm.tree.root=_Node(); m.amm.tree.nid=0; m.amm.time=0  
+        o = m.fwd(ids, mask)  
+        prefix, _, _, _ = m._get_prefix(o['hs'], mask, update_stats=False, return_extra=True, ids=ids)  
+    cwm_applied = m.bridge._last_inject_diag.get('cwm_applied', False)  
+    R.check("cwm_was_applied", cwm_applied)  
+    R.check("cwm_prefix_finite", prefix.isfinite().all().item())  
+    aligner_scale = m.bridge._last_inject_diag.get('aligner_scale', 0)  
+    print(f"    aligner_scale={aligner_scale:.4f}")  
+    R.check("aligner_scale_increased", aligner_scale > 0.2,  
+        f"scale={aligner_scale:.4f}, expected > 0.2 (v3.12 init=-0.2)")  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
   
 def test_first_step_not_punct(m, c, R, texts):  
-    print("\n── 首步 Top-1 非标点测试 (v3.7) ──")  
-    m.amm.tree.store.clear(); m.amm.tree.root=_Node(); m.amm.tree.nid=0; m.amm.time=0  
-    for t in texts[:6]: m.write(t,training_mode=True)  
-    m.eval(); dev=next(m.parameters()).device; cc=m.content_classifier  
-    for prompt in ["Key piano ideas include","The telescope reveals"]:  
-        tk=m.tok(prompt,return_tensors='pt')  
-        ids,mask=tk['input_ids'].to(dev),tk['attention_mask'].to(dev)  
+    print("\n── 首步 Top-1 非标点测试 ──")  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
+    for t in texts[:6]: m.write(t, training_mode=True)  
+    m.eval(); dev = next(m.parameters()).device; cc = m.content_classifier  
+    for prompt in ["Key piano ideas include", "The telescope reveals"]:  
+        tk = m.tok(prompt, return_tensors='pt')  
+        ids, mask = tk['input_ids'].to(dev), tk['attention_mask'].to(dev)  
         with torch.no_grad():  
-            o=m.fwd(ids,mask)  
-            prefix,fiber_summary,diag,content_bias=m._get_prefix(  
-                o['hs'],mask,update_stats=False,return_extra=True,ids=ids)  
-            vocab_bias=m._compute_vocab_bias(fiber_summary)  
-            o2=m.fwd(ids,mask,prefix)  
-            logits=o2['logits'][:,-1].clone()  
-            V=min(logits.shape[-1],content_bias.shape[-1])  
-            logits[:,:V]=logits[:,:V]+content_bias[:,:V]*c.content_bias_scale  
+            o = m.fwd(ids, mask)  
+            prefix, fiber_summary, diag, content_bias = m._get_prefix(  
+                o['hs'], mask, update_stats=False, return_extra=True, ids=ids)  
+            vocab_bias = m._compute_vocab_bias(fiber_summary)  
+            o2 = m.fwd(ids, mask, prefix)  
+            logits = o2['logits'][:, -1].clone()  
+            has_content = content_bias.abs().max().item() > 0.01  
+            V = min(logits.shape[-1], content_bias.shape[-1])  
+            eff_scale = c.content_bias_scale * c.first_step_content_multiplier  
+            if has_content:  
+                logits[:, :V] = logits[:, :V] + content_bias[:, :V] * eff_scale  
             if vocab_bias is not None:  
-                V2=min(logits.shape[-1],vocab_bias.shape[-1])  
-                logits[:,:V2]=logits[:,:V2]+vocab_bias[:,:V2]*c.semantic_boost_scale  
+                V2 = min(logits.shape[-1], vocab_bias.shape[-1])  
+                logits[:, :V2] = logits[:, :V2] + vocab_bias[:, :V2] * c.semantic_boost_scale  
             if cc:  
-                cmask=cc.content_mask(dev)  
-                V3=min(logits.shape[-1],cmask.shape[0])  
-                logits[0,:V3]=logits[0,:V3]+cmask[:V3]*c.universal_content_boost  
-            logits=m._degen_guard.process(logits,[],0)  
-            top1=logits.argmax(-1).item(); top1_tok=m.tok.decode([top1]).strip()  
-        is_punct=top1 in cc.punct_ids or top1 in cc.newline_ids  
-        R.check(f"first_step_{prompt[:10]}_not_punct",not is_punct,  
+                cmask = cc.content_mask(dev)  
+                V3 = min(logits.shape[-1], cmask.shape[0])  
+                logits[0, :V3] = logits[0, :V3] + cmask[:V3] * c.universal_content_boost  
+            logits = m._degen_guard.process(logits, [], 0,  
+                first_step_penalty_mult=c.first_step_penalty_multiplier)  
+            if cc is not None:  
+                for pid in cc.punct_ids:  
+                    if pid < logits.shape[-1]: logits[0, pid] = -float('inf')  
+                for nid in cc.newline_ids:  
+                    if nid < logits.shape[-1]: logits[0, nid] = -float('inf')  
+            top1 = logits.argmax(-1).item(); top1_tok = m.tok.decode([top1]).strip()  
+        is_punct = top1 in cc.punct_ids or top1 in cc.newline_ids  
+        R.check(f"first_step_{prompt[:10]}_not_punct", not is_punct,  
             f"top1={top1}, tok='{top1_tok}'")  
-        top5=logits.topk(5).indices[0].tolist()  
-        top5_toks=[m.tok.decode([t]).strip() for t in top5]  
-        content_in_top5=sum(1 for t in top5 if t in cc.content_ids)  
-        R.check(f"first_step_{prompt[:10]}_content_in_top5",content_in_top5>=2,  
+        top5 = logits.topk(5).indices[0].tolist()  
+        top5_toks = [m.tok.decode([t]).strip() for t in top5]  
+        content_in_top5 = sum(1 for t in top5 if t in cc.content_ids)  
+        R.check(f"first_step_{prompt[:10]}_content_in_top5", content_in_top5 >= 2,  
             f"top5={top5_toks}, content_count={content_in_top5}")  
         print(f"    '{prompt}' → top1='{top1_tok}', top5={top5_toks}")  
-    m.amm.tree.store.clear(); m.amm.tree.root=_Node(); m.amm.tree.nid=0; m.amm.time=0  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
+  
+def test_early_steps_not_punct(m, c, R, texts):  
+    print("\n── 前几步非标点测试 ──")  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
+    for t in texts[:6]: m.write(t, training_mode=True)  
+    m.eval(); cc = m.content_classifier  
+    torch.manual_seed(42)  
+    for prompt in ["The pianist", "Stars and galaxies"]:  
+        with torch.no_grad():  
+            gen = m.generate(prompt, mt=10, greedy=True)  
+        new_text = gen[len(prompt):]  
+        new_tokens = m.tok.encode(new_text) if new_text else []  
+        n_check = min(len(new_tokens), c.early_content_steps)  
+        all_non_punct = True  
+        for ti in range(n_check):  
+            if new_tokens[ti] in cc.punct_ids or new_tokens[ti] in cc.newline_ids:  
+                all_non_punct = False  
+                bad_tok = m.tok.decode([new_tokens[ti]]).strip()  
+                print(f"    '{prompt}': punct at step {ti}: '{bad_tok}'")  
+                break  
+        R.check(f"early_steps_{prompt[:10]}_no_punct", all_non_punct,  
+            f"first {n_check} tokens: {[m.tok.decode([t]).strip() for t in new_tokens[:n_check]]}")  
+        print(f"    '{prompt}' → '{new_text[:60]}'")  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
   
 def test_degeneration_quality(m, c, R, texts):  
-    print("\n── 退化质量测试 ──")  
-    m.amm.tree.store.clear(); m.amm.tree.root=_Node(); m.amm.tree.nid=0; m.amm.time=0  
-    for t in texts[:6]: m.write(t,training_mode=True)  
-    m.eval(); cc=m.content_classifier  
-    for prompt in ["The pianist","Quantum computing is","Stars and galaxies"]:  
+    print("\n── 退化质量 + 重复段测试 ──")  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
+    for t in texts[:6]: m.write(t, training_mode=True)  
+    m.eval(); cc = m.content_classifier  
+    for prompt in ["The pianist", "Quantum computing is", "Stars and galaxies"]:  
         torch.manual_seed(42)  
-        with torch.no_grad(): gen=m.generate(prompt,mt=30,greedy=False)  
-        new_text=gen[len(prompt):].strip()  
-        total_chars=len(new_text); alpha_chars=sum(1 for ch in new_text if ch.isalpha())  
-        ratio=alpha_chars/max(total_chars,1)  
-        new_tokens=m.tok.encode(new_text) if new_text else []  
-        content_count=len(cc.get_content_ids_from_tokens(new_tokens)) if cc else 0  
-        content_ratio=content_count/max(len(new_tokens),1)  
-        R.check(f"degen_{prompt[:10]}_has_content",total_chars>=5,  
+        with torch.no_grad(): gen = m.generate(prompt, mt=30, greedy=False)  
+        new_text = gen[len(prompt):].strip()  
+        total_chars = len(new_text); alpha_chars = sum(1 for ch in new_text if ch.isalpha())  
+        ratio = alpha_chars / max(total_chars, 1)  
+        new_tokens = m.tok.encode(new_text) if new_text else []  
+        content_count = len(cc.get_content_ids_from_tokens(new_tokens)) if cc else 0  
+        content_ratio = content_count / max(len(new_tokens), 1)  
+        R.check(f"degen_{prompt[:10]}_has_content", total_chars >= 5,  
             f"chars={total_chars}")  
-        R.check(f"degen_{prompt[:10]}_alpha_ratio",ratio>0.3,  
+        R.check(f"degen_{prompt[:10]}_alpha_ratio", ratio > 0.3,  
             f"ratio={ratio:.2f}, text='{new_text[:50]}'")  
-        R.check(f"degen_{prompt[:10]}_content_ratio",content_ratio>0.1,  
-            f"ratio={content_ratio:.2f}")  
+        words = new_text.lower().split()  
+        if len(words) >= 4:  
+            unique_words = set(words)  
+            unique_ratio = len(unique_words) / len(words)  
+            R.check(f"degen_{prompt[:10]}_no_word_stacking", unique_ratio > 0.3,  
+                f"unique_ratio={unique_ratio:.2f}, words={words[:10]}")  
+        else:  
+            R.check(f"degen_{prompt[:10]}_no_word_stacking", True)  
         print(f"    '{prompt}' → '{new_text[:60]}' (alpha={ratio:.2f}, content={content_ratio:.2f})")  
-    m.amm.tree.store.clear(); m.amm.tree.root=_Node(); m.amm.tree.nid=0; m.amm.time=0  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
   
-def test_domain_semantic_grounding(m, c, R):  
-    print("\n── 域语义接地测试 (v3.7) ──")  
-    music_texts=[  
+def test_counterfactual_discrimination(m, c, R):  
+    print("\n── 反事实对区分度测试 ──")  
+    music_texts = [  
         "He practiced piano for hours perfecting a difficult Chopin nocturne.",  
         "The orchestra performed Beethoven symphony with remarkable precision.",  
         "She studied music theory and harmonic progression at the conservatory."]  
-    space_texts=[  
+    space_texts = [  
         "The telescope revealed distant galaxies beyond the Milky Way.",  
         "Astronauts trained for the Mars mission in simulated zero gravity.",  
         "The nebula emitted radiation across the electromagnetic spectrum."]  
-    m.amm.tree.store.clear(); m.amm.tree.root=_Node(); m.amm.tree.nid=0; m.amm.time=0  
-    for t in music_texts+space_texts: m.write(t,training_mode=True)  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
+    for t in music_texts + space_texts: m.write(t, training_mode=True)  
+    n_mems = len(m.amm.tree.store)  
+    print(f"    Stored {n_mems} memories")  
+    R.check("cf_enough_mems", n_mems >= 4, f"n_mems={n_mems}")  
     m.eval()  
-    music_keywords={'piano','music','chopin','nocturne','orchestra','beethoven','symphony',  
-                   'harmony','melody','chord','musical','sonata','concerto','instrument',  
-                   'practiced','perfecting','harmonic','progression','conservatory',  
-                   'performed','remarkable','precision','theory','studied',  
-                   'pianist','composer','notes','score','tempo'}  
-    space_keywords={'galaxy','galaxies','telescope','star','planet','orbit','space','astronaut',  
-                   'mars','nebula','radiation','gravity','cosmic','solar','lunar',  
-                   'universe','constellation','spectrum','satellite','mission',  
-                   'astronauts','electromagnetic','revealed','distant','simulated','emitted',  
-                   'trained','zero'}  
-    def count_domain_words(text, keywords):  
-        words=set(text.lower().split())  
+    music_keywords = {'piano', 'music', 'chopin', 'nocturne', 'orchestra', 'beethoven', 'symphony',  
+                      'harmony', 'melody', 'chord', 'musical', 'sonata', 'concerto', 'instrument',  
+                      'practiced', 'perfecting', 'harmonic', 'progression', 'conservatory',  
+                      'performed', 'remarkable', 'precision', 'theory', 'studied',  
+                      'pianist', 'composer', 'notes', 'score', 'tempo'}  
+    space_keywords = {'galaxy', 'galaxies', 'telescope', 'star', 'planet', 'orbit', 'space', 'astronaut',  
+                      'mars', 'nebula', 'radiation', 'gravity', 'cosmic', 'solar', 'lunar',  
+                      'universe', 'constellation', 'spectrum', 'satellite', 'mission',  
+                      'astronauts', 'electromagnetic', 'revealed', 'distant', 'simulated', 'emitted',  
+                      'trained', 'zero'}  
+    def count_domain(text, keywords):  
+        words = set(text.lower().split())  
         return sum(1 for w in words if any(kw in w for kw in keywords))  
-    music_query_results=[]; space_query_results=[]  
-    for seed in range(3):  
-        torch.manual_seed(42+seed)  
+    music_gens = []; space_gens = []  
+    for seed in range(5):  
+        torch.manual_seed(42 + seed)  
         with torch.no_grad():  
-            mg=m.generate("The piano performance",mt=40,greedy=False)  
-            sg=m.generate("The space telescope",mt=40,greedy=False)  
+            mg = m.generate("The piano performance", mt=40, greedy=False)  
+            sg = m.generate("The space telescope", mt=40, greedy=False)  
+        music_gens.append(mg); space_gens.append(sg)  
+    avg_mm = sum(count_domain(t, music_keywords) for t in music_gens) / 5  
+    avg_ms = sum(count_domain(t, space_keywords) for t in music_gens) / 5  
+    avg_sm = sum(count_domain(t, music_keywords) for t in space_gens) / 5  
+    avg_ss = sum(count_domain(t, space_keywords) for t in space_gens) / 5  
+    print(f"    music_gen: music_kw={avg_mm:.1f}, space_kw={avg_ms:.1f}")  
+    print(f"    space_gen: music_kw={avg_sm:.1f}, space_kw={avg_ss:.1f}")  
+    for t in music_gens[:1]:  
+        print(f"    music_sample: '{t[len('The piano performance'):][:80]}'")  
+    for t in space_gens[:1]:  
+        print(f"    space_sample: '{t[len('The space telescope'):][:80]}'")  
+    R.check("cf_music_has_music_kw", avg_mm > 0, f"avg={avg_mm:.1f}")  
+    R.check("cf_space_has_space_kw", avg_ss > 0, f"avg={avg_ss:.1f}")  
+    R.check("cf_music_margin", avg_mm > avg_ms, f"mm={avg_mm:.1f}, ms={avg_ms:.1f}")  
+    R.check("cf_space_margin", avg_ss > avg_sm, f"ss={avg_ss:.1f}, sm={avg_sm:.1f}")  
+    R.check("cf_cross_discriminable", avg_mm > avg_sm or avg_ss > avg_ms,  
+        f"mm={avg_mm:.1f}, sm={avg_sm:.1f}, ss={avg_ss:.1f}, ms={avg_ms:.1f}")  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
+  
+def test_domain_semantic_grounding(m, c, R):  
+    print("\n── 域语义接地测试 ──")  
+    music_texts = [  
+        "He practiced piano for hours perfecting a difficult Chopin nocturne.",  
+        "The orchestra performed Beethoven symphony with remarkable precision.",  
+        "She studied music theory and harmonic progression at the conservatory."]  
+    space_texts = [  
+        "The telescope revealed distant galaxies beyond the Milky Way.",  
+        "Astronauts trained for the Mars mission in simulated zero gravity.",  
+        "The nebula emitted radiation across the electromagnetic spectrum."]  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
+    for t in music_texts + space_texts: m.write(t, training_mode=True)  
+    n_mems = len(m.amm.tree.store)  
+    print(f"    Stored {n_mems} memories")  
+    R.check("domain_guard_kept_separate", n_mems >= 4, f"n_mems={n_mems}")  
+    m.eval()  
+    music_keywords = {'piano', 'music', 'chopin', 'nocturne', 'orchestra', 'beethoven', 'symphony',  
+                      'harmony', 'melody', 'chord', 'musical', 'sonata', 'concerto', 'instrument',  
+                      'practiced', 'perfecting', 'harmonic', 'progression', 'conservatory',  
+                      'performed', 'remarkable', 'precision', 'theory', 'studied',  
+                      'pianist', 'composer', 'notes', 'score', 'tempo'}  
+    space_keywords = {'galaxy', 'galaxies', 'telescope', 'star', 'planet', 'orbit', 'space', 'astronaut',  
+                      'mars', 'nebula', 'radiation', 'gravity', 'cosmic', 'solar', 'lunar',  
+                      'universe', 'constellation', 'spectrum', 'satellite', 'mission',  
+                      'astronauts', 'electromagnetic', 'revealed', 'distant', 'simulated', 'emitted',  
+                      'trained', 'zero'}  
+    def count_domain_words(text, keywords):  
+        words = set(text.lower().split())  
+        return sum(1 for w in words if any(kw in w for kw in keywords))  
+    music_query_results = []; space_query_results = []  
+    for seed in range(3):  
+        torch.manual_seed(42 + seed)  
+        with torch.no_grad():  
+            mg = m.generate("The piano performance", mt=40, greedy=False)  
+            sg = m.generate("The space telescope", mt=40, greedy=False)  
         music_query_results.append(mg); space_query_results.append(sg)  
-    avg_music_in_music=sum(count_domain_words(t,music_keywords) for t in music_query_results)/3  
-    avg_space_in_space=sum(count_domain_words(t,space_keywords) for t in space_query_results)/3  
-    avg_music_in_space=sum(count_domain_words(t,music_keywords) for t in space_query_results)/3  
-    avg_space_in_music=sum(count_domain_words(t,space_keywords) for t in music_query_results)/3  
+    avg_music_in_music = sum(count_domain_words(t, music_keywords) for t in music_query_results) / 3  
+    avg_space_in_space = sum(count_domain_words(t, space_keywords) for t in space_query_results) / 3  
+    avg_music_in_space = sum(count_domain_words(t, music_keywords) for t in space_query_results) / 3  
+    avg_space_in_music = sum(count_domain_words(t, space_keywords) for t in music_query_results) / 3  
     print(f"    music_query → music_kw={avg_music_in_music:.1f}, space_kw={avg_space_in_music:.1f}")  
     print(f"    space_query → space_kw={avg_space_in_space:.1f}, music_kw={avg_music_in_space:.1f}")  
     for t in music_query_results[:1]:  
         print(f"    music_gen: '{t[len('The piano performance'):][:80]}'")  
     for t in space_query_results[:1]:  
         print(f"    space_gen: '{t[len('The space telescope'):][:80]}'")  
-    R.check("domain_music_has_music_kw",avg_music_in_music>0,f"avg={avg_music_in_music:.1f}")  
-    R.check("domain_space_has_space_kw",avg_space_in_space>0,f"avg={avg_space_in_space:.1f}")  
-    music_margin=avg_music_in_music-avg_music_in_space  
-    space_margin=avg_space_in_space-avg_space_in_music  
-    R.check("domain_music_margin_positive",music_margin>0,f"margin={music_margin:.1f}")  
-    R.check("domain_space_margin_positive",space_margin>0,f"margin={space_margin:.1f}")  
-    m.amm.tree.store.clear(); m.amm.tree.root=_Node(); m.amm.tree.nid=0; m.amm.time=0  
+    R.check("domain_music_has_music_kw", avg_music_in_music > 0, f"avg={avg_music_in_music:.1f}")  
+    R.check("domain_space_has_space_kw", avg_space_in_space > 0, f"avg={avg_space_in_space:.1f}")  
+    music_margin = avg_music_in_music - avg_music_in_space  
+    space_margin = avg_space_in_space - avg_space_in_music  
+    R.check("domain_music_margin_positive", music_margin > 0, f"margin={music_margin:.1f}")  
+    R.check("domain_space_margin_positive", space_margin > 0, f"margin={space_margin:.1f}")  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
   
-def test_zero_train_content_grounding(m, c, R):  
-    print("\n── 零训练域接地测试 ──")  
-    m.amm.tree.store.clear(); m.amm.tree.root=_Node(); m.amm.tree.nid=0; m.amm.time=0  
-    m.write("He practiced piano for hours perfecting a difficult Chopin nocturne.",training_mode=True)  
-    m.write("She studied music theory and harmonic progression at the conservatory.",training_mode=True)  
-    m.eval(); dev=next(m.parameters()).device  
-    tk=m.tok("The piano performance",return_tensors='pt')  
-    ids,mask=tk['input_ids'].to(dev),tk['attention_mask'].to(dev)  
+def test_content_semantic_emb(m, c, R):  
+    print("\n── Content-Position-Only 语义嵌入测试 ──")  
+    dev = next(m.parameters()).device  
+    tk1 = m.tok("He practiced piano Chopin nocturne", return_tensors='pt')  
+    ids1, mask1 = tk1['input_ids'].to(dev), tk1['attention_mask'].to(dev)  
     with torch.no_grad():  
-        o=m.fwd(ids,mask)  
-        _,_,_,cb=m._get_prefix(o['hs'],mask,update_stats=False,return_extra=True,ids=ids)  
-    R.check("zero_train_cb_nonzero",cb.abs().max().item()>0.01)  
-    top10_ids=cb[0].topk(10).indices.tolist()  
-    top10_toks=[m.tok.decode([t]).strip().lower() for t in top10_ids]  
-    has_music_word=any(w in ['piano','chopin','nocturne','practiced','perfecting',  
-                             'difficult','music','theory','harmonic','harmony',  
-                             'progression','conservatory','studied','hours']  
-                       for w in top10_toks)  
-    R.check("zero_train_cb_has_music",has_music_word,f"top10={top10_toks}")  
-    print(f"    zero-train content_bias top10: {top10_toks}")  
-    m.amm.tree.store.clear(); m.amm.tree.root=_Node(); m.amm.tree.nid=0; m.amm.time=0  
+        o1 = m.fwd(ids1, mask1); pooled1 = m.layer_pool(o1['hs'])  
+    sem1 = m._compute_content_semantic_emb(pooled1, ids1, mask1)  
+    R.check("csem_shape", sem1.shape == (1, c.d_LLM), f"shape={sem1.shape}")  
+    R.check("csem_finite", sem1.isfinite().all().item())  
   
 def test_direction_degeneracy(m, c, R):  
     print("\n── 方向退化边界测试 ──")  
-    tree=m.amm.tree  
-    R.check("degeneracy_method_exists",hasattr(tree,'check_direction_degeneracy'))  
-    degen=tree.check_direction_degeneracy(threshold=0.95)  
-    R.check("degeneracy_returns_list",isinstance(degen,list))  
-    R.check("leaf_size_violations_method",hasattr(tree,'leaf_size_violations'))  
-    violations=tree.leaf_size_violations()  
-    R.check("leaf_size_violations_returns_list",isinstance(violations,list))  
+    tree = m.amm.tree  
+    R.check("degeneracy_method_exists", hasattr(tree, 'check_direction_degeneracy'))  
+    degen = tree.check_direction_degeneracy(threshold=0.95)  
+    R.check("degeneracy_returns_list", isinstance(degen, list))  
   
 def test_leaf_capacity_stability(c, R):  
     print("\n── 叶容量稳定性测试 ──")  
-    tc=Cfg(tree_max_leaf=5,tree_K=3,d_M=c.d_M,d_F=c.d_F)  
-    tree=DirectionTree(tc); N=100  
+    tc = Cfg(tree_max_leaf=5, tree_K=3, d_M=c.d_M, d_F=c.d_F)  
+    tree = DirectionTree(tc); N = 100  
     for i in range(N):  
-        d=F.normalize(torch.randn(tc.d_M),dim=0)  
-        me=MemEntry(mid=i,base=torch.randn(tc.d_M),fiber=torch.randn(tc.d_F),  
-            dirn=d,surprise=0.5,ts=float(i),last=float(i))  
-        tree.store[me.mid]=me; tree.nid=i+1; tree._ins(tree.root,me)  
-    violations=tree.leaf_size_violations()  
-    R.check("leaf_capacity_no_violations",len(violations)==0,  
-        f"violations={violations}")  
-    errs=tree.verify_consistency()  
-    R.check("leaf_capacity_consistent",len(errs)==0,str(errs))  
-    R.check("leaf_capacity_count",tree.root.count()==N)  
-    degen=tree.check_direction_degeneracy(threshold=0.999)  
-    R.check("leaf_degen_check_runs",isinstance(degen,list))  
+        d = F.normalize(torch.randn(tc.d_M), dim=0)  
+        me = MemEntry(mid=i, base=torch.randn(tc.d_M), fiber=torch.randn(tc.d_F),  
+            dirn=d, surprise=0.5, ts=float(i), last=float(i))  
+        tree.store[me.mid] = me; tree.nid = i+1; tree._ins(tree.root, me)  
+    violations = tree.leaf_size_violations()  
+    R.check("leaf_capacity_no_violations", len(violations) == 0, f"violations={violations}")  
+    errs = tree.verify_consistency()  
+    R.check("leaf_capacity_consistent", len(errs) == 0, str(errs))  
+    R.check("leaf_capacity_count", tree.root.count() == N)  
   
 def test_empty_memory(m, c, R):  
     print("\n── 空记忆测试 ──")  
-    dev=next(m.parameters()).device  
-    old_s=dict(m.amm.tree.store); old_r=m.amm.tree.root; old_n=m.amm.tree.nid  
-    m.amm.tree.store={}; m.amm.tree.root=_Node(); m.amm.tree.nid=0; m.eval()  
-    tk=m.tok("Hello world",return_tensors='pt')  
-    ids,mask=tk['input_ids'].to(dev),tk['attention_mask'].to(dev)  
+    dev = next(m.parameters()).device  
+    old_s = dict(m.amm.tree.store); old_r = m.amm.tree.root; old_n = m.amm.tree.nid  
+    m.amm.tree.store = {}; m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.eval()  
+    tk = m.tok("Hello world", return_tensors='pt')  
+    ids, mask = tk['input_ids'].to(dev), tk['attention_mask'].to(dev)  
     with torch.no_grad():  
-        o=m.fwd(ids,mask)  
-        prefix,_,_,cb=m._get_prefix(o['hs'],mask,return_extra=True,ids=ids)  
-    R.check("empty_mem_prefix_finite",prefix.isfinite().all().item())  
-    R.check("empty_mem_cb_zero",cb.abs().max().item()<1e-6)  
-    with torch.no_grad(): gen=m.generate("Hello",mt=10,greedy=True)  
-    R.check("empty_mem_generate_ok",len(gen)>0)  
-    m.amm.tree.store=old_s; m.amm.tree.root=old_r; m.amm.tree.nid=old_n  
+        o = m.fwd(ids, mask)  
+        prefix, _, _, cb = m._get_prefix(o['hs'], mask, return_extra=True, ids=ids)  
+    R.check("empty_mem_prefix_finite", prefix.isfinite().all().item())  
+    R.check("empty_mem_cb_zero", cb.abs().max().item() < 1e-6)  
+    with torch.no_grad(): gen = m.generate("Hello", mt=10, greedy=True)  
+    R.check("empty_mem_generate_ok", len(gen) > 0)  
+    m.amm.tree.store = old_s; m.amm.tree.root = old_r; m.amm.tree.nid = old_n  
   
 def test_functional(m, c, R, texts):  
     print("\n── 功能测试 ──")  
-    dev=next(m.parameters()).device; total=0; gvs=[]  
-    m.amm.tree.store.clear(); m.amm.tree.root=_Node(); m.amm.tree.nid=0; m.amm.time=0  
+    dev = next(m.parameters()).device; total = 0; gvs = []  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
     for t in texts:  
-        ns,gv=m.write(t,training_mode=True); total+=ns; gvs.extend(gv)  
-    R.check("write_count",total>0,f"stored={total}/{len(texts)}")  
-    R.check("write_gate_range",all(0<=g<=1 for g in gvs))  
-    all_have_text=all(e.source_text for e in m.amm.tree.store.values())  
-    R.check("write_source_text",all_have_text)  
-    all_have_sem=all(e.semantic_emb is not None for e in m.amm.tree.store.values())  
-    R.check("write_semantic_emb",all_have_sem)  
-    all_have_ct=all(len(e.content_token_ids)>0 for e in m.amm.tree.store.values())  
-    R.check("write_content_tokens",all_have_ct)  
-    all_have_wte=all(e.content_wte_centroid is not None for e in m.amm.tree.store.values())  
-    R.check("write_wte_centroid",all_have_wte)  
-    all_have_exp=all(len(e.expanded_content_ids)>0 for e in m.amm.tree.store.values())  
-    R.check("write_expanded_ids",all_have_exp)  
+        ns, gv = m.write(t, training_mode=True); total += ns; gvs.extend(gv)  
+    R.check("write_count", total > 0, f"stored={total}/{len(texts)}")  
+    R.check("write_gate_range", all(0 <= g <= 1 for g in gvs))  
+    all_have_text = all(e.source_text for e in m.amm.tree.store.values())  
+    R.check("write_source_text", all_have_text)  
+    all_have_sem = all(e.semantic_emb is not None for e in m.amm.tree.store.values())  
+    R.check("write_semantic_emb", all_have_sem)  
+    all_have_ct = all(len(e.content_token_ids) > 0 for e in m.amm.tree.store.values())  
+    R.check("write_content_tokens", all_have_ct)  
     m.eval()  
-    tk=m.tok("Tell me about piano.",return_tensors='pt')  
-    ids,mask=tk['input_ids'].to(dev),tk['attention_mask'].to(dev)  
+    tk = m.tok("Tell me about piano.", return_tensors='pt')  
+    ids, mask = tk['input_ids'].to(dev), tk['attention_mask'].to(dev)  
     with torch.no_grad():  
-        o=m.fwd(ids,mask)  
-        _,_,_,cb=m._get_prefix(o['hs'],mask,return_extra=True,ids=ids)  
-    R.check("retrieve_cb_nonzero",cb.abs().max().item()>0)  
+        o = m.fwd(ids, mask)  
+        _, _, _, cb = m._get_prefix(o['hs'], mask, return_extra=True, ids=ids)  
+    R.check("retrieve_cb_nonzero", cb.abs().max().item() > 0)  
     torch.manual_seed(42)  
-    with torch.no_grad(): gen=m.generate("The pianist",20,greedy=True)  
-    R.check("generate_nonempty",len(gen)>len("The pianist"))  
-    m.amm.time+=2000; n0=len(m.amm.tree.store); nd=m.amm.decay()  
-    n1=len(m.amm.tree.store)  
-    R.check("decay_consistent",n1==n0-nd)  
+    with torch.no_grad(): gen = m.generate("The pianist", 20, greedy=True)  
+    R.check("generate_nonempty", len(gen) > len("The pianist"))  
+    m.amm.time += 2000; n0 = len(m.amm.tree.store); nd = m.amm.decay()  
+    n1 = len(m.amm.tree.store)  
+    R.check("decay_consistent", n1 == n0 - nd)  
   
 def test_batch_retrieval(m, c, R):  
     print("\n── Batch 检索测试 ──")  
-    dev=next(m.parameters()).device  
-    for t in ["Cats are fluffy.","Stars shine bright."]: m.write(t,training_mode=True)  
+    dev = next(m.parameters()).device  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
+    for t in ["Cats are fluffy.", "Stars shine bright."]: m.write(t, training_mode=True)  
     m.eval()  
-    tk=m.tok(["Tell me about cats.","The night sky."],  
-        return_tensors='pt',padding=True,truncation=True)  
-    ids,mask=tk['input_ids'].to(dev),tk['attention_mask'].to(dev)  
+    tk = m.tok(["Tell me about cats.", "The night sky."],  
+        return_tensors='pt', padding=True, truncation=True)  
+    ids, mask = tk['input_ids'].to(dev), tk['attention_mask'].to(dev)  
     with torch.no_grad():  
-        o=m.fwd(ids,mask)  
-        _,_,_,cb=m._get_prefix(o['hs'],mask,return_extra=True,ids=ids)  
-    R.check("batch_cb_shape",cb.shape[0]==2)  
-    R.check("batch_cb_finite",cb.isfinite().all().item())  
+        o = m.fwd(ids, mask)  
+        _, _, _, cb = m._get_prefix(o['hs'], mask, return_extra=True, ids=ids)  
+    R.check("batch_cb_shape", cb.shape[0] == 2)  
+    R.check("batch_cb_finite", cb.isfinite().all().item())  
   
 def test_gradient_flow(m, c, R):  
     print("\n── 梯度流测试 ──")  
-    dev=next(m.parameters()).device  
-    for t in ["The cat sat.","Quantum computing.","Piano practice."]:  
-        m.write(t,training_mode=True)  
+    dev = next(m.parameters()).device  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
+    for t in ["The cat sat.", "Quantum computing.", "Piano practice."]:  
+        m.write(t, training_mode=True)  
     m.train(); m.zero_grad()  
-    tk=m.tok("Tell me about music.",return_tensors='pt')  
-    ids,mask=tk['input_ids'].to(dev),tk['attention_mask'].to(dev)  
-    with torch.no_grad(): bo=m.fwd(ids,mask)  
-    prefix=m._get_prefix(bo['hs'],mask,update_stats=False,ids=ids)  
-    fs=m.bridge._last_fiber_summary  
-    o=m.fwd(ids,mask,prefix)  
-    lg=o['logits'][:,o['pl']:-1]; tg=ids[:,1:]; ml=min(lg.shape[1],tg.shape[1])  
-    if ml>0:  
-        loss=F.cross_entropy(lg[:,:ml].reshape(-1,lg.shape[-1]),tg[:,:ml].reshape(-1))  
+    tk = m.tok("Tell me about music.", return_tensors='pt')  
+    ids, mask = tk['input_ids'].to(dev), tk['attention_mask'].to(dev)  
+    with torch.no_grad(): bo = m.fwd(ids, mask)  
+    prefix = m._get_prefix(bo['hs'], mask, update_stats=False, ids=ids)  
+    fs = m.bridge._last_fiber_summary  
+    o = m.fwd(ids, mask, prefix)  
+    lg = o['logits'][:, o['pl']:-1]; tg = ids[:, 1:]; ml = min(lg.shape[1], tg.shape[1])  
+    if ml > 0:  
+        loss = F.cross_entropy(lg[:, :ml].reshape(-1, lg.shape[-1]), tg[:, :ml].reshape(-1))  
         if fs is not None:  
-            probe_pred=m.semantic_probe(prefix)  
-            loss_sp=F.mse_loss(probe_pred,fs.detach())  
-            (loss+loss_sp).backward()  
+            probe_pred = m.semantic_probe(prefix)  
+            loss_sp = F.mse_loss(probe_pred, fs.detach())  
+            (loss + loss_sp).backward()  
         else: loss.backward()  
-        checks=[  
-            ("dir_predictor",m.amm.dir_pred.net[0].weight),  
-            ("fiber_connection",m.amm.conn.net[0].weight),  
-            ("fiber_attn",m.amm.attn.Wq.weight),  
-            ("qformer_proj",m.bridge.proj.layers[0].ca.in_proj_weight),  
-            ("content_bypass",m.bridge.bypass.proj[0].weight),  
-            ("prefix_aligner_scale",m.bridge.aligner.scale_logit)]  
-        for name,param in checks:  
-            hg=param.grad is not None and param.grad.abs().max().item()>0  
-            R.check(f"grad_{name}",hg,  
+        checks = [  
+            ("dir_predictor", m.amm.dir_pred.net[0].weight),  
+            ("fiber_connection", m.amm.conn.net[0].weight),  
+            ("fiber_attn", m.amm.attn.Wq.weight),  
+            ("qformer_proj", m.bridge.proj.layers[0].ca.in_proj_weight),  
+            ("content_bypass", m.bridge.bypass.proj[0].weight),  
+            ("prefix_aligner_scale", m.bridge.aligner.scale_logit)]  
+        for name, param in checks:  
+            hg = param.grad is not None and param.grad.abs().max().item() > 0  
+            R.check(f"grad_{name}", hg,  
                 f"grad={'None' if param.grad is None else param.grad.abs().max().item():.2e}")  
     m.zero_grad(); m.eval()  
   
 def test_gradient_balance(m, c, R, texts):  
     print("\n── 梯度均衡测试 ──")  
-    m.amm.tree.store.clear(); m.amm.tree.root=_Node(); m.amm.tree.nid=0; m.amm.time=0  
-    for t in texts[:4]: m.write(t,training_mode=True)  
-    trainer=Trainer(m,c); info=trainer.step(texts[:3])  
-    gn=info['grad_norms']; print(f"    grad_norms: {gn}")  
-    for name in ['ctx_encoder','fib_encoder','qformer','content_bypass','prefix_aligner','vocab_proj']:  
-        norm=gn.get(name,0.0)  
-        R.check(f"grad_{name}_nonzero",norm>0,f"norm={norm:.2e}")  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
+    for t in texts[:4]: m.write(t, training_mode=True)  
+    trainer = Trainer(m, c); info = trainer.step(texts[:3])  
+    gn = info['grad_norms']; print(f"    grad_norms: {gn}")  
+    for name in ['ctx_encoder', 'fib_encoder', 'qformer', 'content_bypass', 'prefix_aligner', 'vocab_proj']:  
+        norm = gn.get(name, 0.0)  
+        R.check(f"grad_{name}_nonzero", norm > 0, f"norm={norm:.2e}")  
   
 def test_quality(m, c, R, texts):  
     print("\n── 质量测试 ──")  
-    m.amm.tree.store.clear(); m.amm.tree.root=_Node(); m.amm.tree.nid=0; m.amm.time=0  
-    for t in texts: m.write(t,training_mode=True)  
-    trainer=Trainer(m,c); losses=[]  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
+    for t in texts: m.write(t, training_mode=True)  
+    trainer = Trainer(m, c); losses = []  
     for ep in range(6):  
-        info=trainer.step(texts[:4]); losses.append(info['total'])  
+        info = trainer.step(texts[:4]); losses.append(info['total'])  
         print(f"    step{ep+1}: total={info['total']:.4f} recon={info['recon']:.4f} "  
               f"sa={info['semantic_alignment']:.4f}")  
-    R.check("training_loss_finite",all(l==l and l<1e6 for l in losses))  
+    R.check("training_loss_finite", all(l == l and l < 1e6 for l in losses))  
     torch.manual_seed(123); m.eval()  
-    with torch.no_grad(): gen_mem=m.generate("The pianist",25,greedy=True)  
-    old_s=dict(m.amm.tree.store); old_r=m.amm.tree.root; old_n=m.amm.tree.nid  
-    m.amm.tree.store={}; m.amm.tree.root=_Node()  
-    with torch.no_grad(): gen_no=m.generate("The pianist",25,greedy=True)  
-    m.amm.tree.store=old_s; m.amm.tree.root=old_r; m.amm.tree.nid=old_n  
+    with torch.no_grad(): gen_mem = m.generate("The pianist", 25, greedy=True)  
+    old_s = dict(m.amm.tree.store); old_r = m.amm.tree.root; old_n = m.amm.tree.nid  
+    m.amm.tree.store = {}; m.amm.tree.root = _Node()  
+    with torch.no_grad(): gen_no = m.generate("The pianist", 25, greedy=True)  
+    m.amm.tree.store = old_s; m.amm.tree.root = old_r; m.amm.tree.nid = old_n  
     print(f"    有记忆: \"{gen_mem}\"")  
     print(f"    无记忆: \"{gen_no}\"")  
-    R.check("quality_diff",gen_mem!=gen_no,"生成结果应该不同")  
+    R.check("quality_diff", gen_mem != gen_no, "生成结果应该不同")  
   
 def test_memory_refresh(m, c, R, texts):  
     print("\n── 记忆刷新测试 ──")  
-    m.amm.tree.store.clear(); m.amm.tree.root=_Node(); m.amm.tree.nid=0; m.amm.time=0  
-    for t in texts[:4]: m.write(t,training_mode=True)  
-    n_before=len(m.amm.tree.store)  
-    with torch.no_grad(): n_refreshed=m._refresh_all_memories()  
-    n_after=len(m.amm.tree.store)  
-    R.check("refresh_post_count",n_after>0,f"n={n_after}")  
-    errs=m.amm.tree.verify_consistency()  
-    R.check("refresh_consistent",len(errs)==0,str(errs))  
-    all_have_wte=all(e.content_wte_centroid is not None for e in m.amm.tree.store.values())  
-    R.check("refresh_wte_preserved",all_have_wte)  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
+    for t in texts[:4]: m.write(t, training_mode=True)  
+    with torch.no_grad(): n_refreshed = m._refresh_all_memories()  
+    n_after = len(m.amm.tree.store)  
+    R.check("refresh_post_count", n_after > 0, f"n={n_after}")  
+    errs = m.amm.tree.verify_consistency()  
+    R.check("refresh_consistent", len(errs) == 0, str(errs))  
   
 def test_ablation_modes(m, c, R, texts):  
     print("\n── 消融模式测试 ──")  
-    for t in texts[:3]: m.write(t,training_mode=True)  
-    dev=next(m.parameters()).device; m.eval()  
-    tk=m.tok("Tell me about music.",return_tensors='pt')  
-    ids,mask=tk['input_ids'].to(dev),tk['attention_mask'].to(dev)  
-    prefixes={}  
-    for mode in ['both','qformer_only','bypass_only']:  
-        m.bridge.inject_mode=mode  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
+    for t in texts[:3]: m.write(t, training_mode=True)  
+    dev = next(m.parameters()).device; m.eval()  
+    tk = m.tok("Tell me about music.", return_tensors='pt')  
+    ids, mask = tk['input_ids'].to(dev), tk['attention_mask'].to(dev)  
+    prefixes = {}  
+    for mode in ['both', 'qformer_only', 'bypass_only']:  
+        m.bridge.inject_mode = mode  
         with torch.no_grad():  
-            o=m.fwd(ids,mask)  
-            prefix=m._get_prefix(o['hs'],mask,update_stats=False,ids=ids)  
-        prefixes[mode]=prefix.clone()  
-        R.check(f"ablation_{mode}_finite",prefix.isfinite().all().item())  
-    m.bridge.inject_mode='both'  
+            o = m.fwd(ids, mask)  
+            prefix = m._get_prefix(o['hs'], mask, update_stats=False, ids=ids)  
+        prefixes[mode] = prefix.clone()  
+        R.check(f"ablation_{mode}_finite", prefix.isfinite().all().item())  
+    m.bridge.inject_mode = 'both'  
     if 'qformer_only' in prefixes and 'bypass_only' in prefixes:  
-        diff=(prefixes['qformer_only']-prefixes['bypass_only']).abs().max().item()  
-        R.check("ablation_modes_differ",diff>1e-6)  
+        diff = (prefixes['qformer_only'] - prefixes['bypass_only']).abs().max().item()  
+        R.check("ablation_modes_differ", diff > 1e-6)  
   
 def test_tree_consistency(m, c, R):  
     print("\n── 树一致性测试 ──")  
-    tree=m.amm.tree; errs=tree.verify_consistency()  
-    R.check("tree_consistency",len(errs)==0,str(errs))  
+    tree = m.amm.tree; errs = tree.verify_consistency()  
+    R.check("tree_consistency", len(errs) == 0, str(errs))  
   
 def test_deep_tree(c, R):  
     print("\n── 深层树测试 ──")  
-    tc=Cfg(tree_max_leaf=5,tree_K=3,d_M=c.d_M,d_F=c.d_F)  
-    tree=DirectionTree(tc); N=150  
+    tc = Cfg(tree_max_leaf=5, tree_K=3, d_M=c.d_M, d_F=c.d_F)  
+    tree = DirectionTree(tc); N = 150  
     for i in range(N):  
-        d=F.normalize(torch.randn(tc.d_M),dim=0)  
-        me=MemEntry(mid=i,base=torch.randn(tc.d_M),fiber=torch.randn(tc.d_F),  
-            dirn=d,surprise=0.5,ts=float(i),last=float(i))  
-        tree.store[me.mid]=me; tree.nid=i+1; tree._ins(tree.root,me)  
-    errs=tree.verify_consistency()  
-    R.check("deep_tree_consistency",len(errs)==0,str(errs))  
-    R.check("deep_tree_count",tree.root.count()==N)  
-    violations=tree.leaf_size_violations()  
-    R.check("deep_tree_no_violations",len(violations)==0,f"violations={violations}")  
-    for i in range(0,N,2): tree.remove(i)  
-    errs=tree.verify_consistency()  
-    R.check("deep_tree_post_remove",len(errs)==0,str(errs))  
-    tree.rebuild(); errs=tree.verify_consistency()  
-    R.check("deep_tree_post_rebuild",len(errs)==0,str(errs))  
+        d = F.normalize(torch.randn(tc.d_M), dim=0)  
+        me = MemEntry(mid=i, base=torch.randn(tc.d_M), fiber=torch.randn(tc.d_F),  
+            dirn=d, surprise=0.5, ts=float(i), last=float(i))  
+        tree.store[me.mid] = me; tree.nid = i+1; tree._ins(tree.root, me)  
+    errs = tree.verify_consistency()  
+    R.check("deep_tree_consistency", len(errs) == 0, str(errs))  
+    R.check("deep_tree_count", tree.root.count() == N)  
+    violations = tree.leaf_size_violations()  
+    R.check("deep_tree_no_violations", len(violations) == 0, f"violations={violations}")  
+    for i in range(0, N, 2): tree.remove(i)  
+    errs = tree.verify_consistency()  
+    R.check("deep_tree_post_remove", len(errs) == 0, str(errs))  
+    tree.rebuild(); errs = tree.verify_consistency()  
+    R.check("deep_tree_post_rebuild", len(errs) == 0, str(errs))  
   
 def test_dealiaser(m, c, R):  
     print("\n── 去混叠测试 ──")  
-    if len(m.amm.tree.store)<2: R.check("dealiaser_skip",True); return  
-    da=SpectralDealiaser(m.amm,c)  
-    cls=da.detect(sim_threshold=0.3); R.check("dealiaser_detect_runs",True)  
+    if len(m.amm.tree.store) < 2: R.check("dealiaser_skip", True); return  
+    da = SpectralDealiaser(m.amm, c)  
+    cls = da.detect(sim_threshold=0.3); R.check("dealiaser_detect_runs", True)  
+  
+def test_domain_anchor_tracking(m, c, R):  
+    print("\n── 域锚追踪测试 ──")  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
+    m.write("He practiced piano for hours perfecting a difficult Chopin nocturne.", training_mode=True)  
+    m.eval(); dev = next(m.parameters()).device  
+    tk = m.tok("Tell me about piano.", return_tensors='pt')  
+    ids, mask = tk['input_ids'].to(dev), tk['attention_mask'].to(dev)  
+    with torch.no_grad():  
+        o = m.fwd(ids, mask)  
+        _, _, _, cb = m._get_prefix(o['hs'], mask, update_stats=False, return_extra=True, ids=ids)  
+    anchors = m._compute_domain_anchors(cb)  
+    R.check("anchor_nonempty", len(anchors[0]) > 0, f"n_anchors={len(anchors[0])}")  
+    anchor_toks = [m.tok.decode([t]).strip() for t in anchors[0][:5]]  
+    print(f"    domain anchors: {anchor_toks}")  
+    R.check("anchor_has_music_word",  
+        any('piano' in t.lower() or 'chopin' in t.lower() or 'nocturne' in t.lower()  
+            for t in anchor_toks),  
+        f"anchors={anchor_toks}")  
+    m.amm.tree.store.clear(); m.amm.tree.root = _Node(); m.amm.tree.nid = 0; m.amm.time = 0  
   
 # ═══════════════════════════════════════════════════════════════════  
 # 第22部分 · 入口  
 # ═══════════════════════════════════════════════════════════════════  
 def test():  
-    torch.manual_seed(42); c=Cfg(); R=TestResults()  
-    sep="="*60  
-    print(f"\n{sep}\n  嵌入级方案B · v3.7 · 结构化测试\n{sep}")  
-    t0=time.time()  
+    torch.manual_seed(42); c = Cfg(); R = TestResults()  
+    sep = "=" * 60  
+    print(f"\n{sep}\n  嵌入级方案B · v3.12 · 结构化测试\n{sep}")  
+    t0 = time.time()  
     print("\n[构建]")  
-    m=MemLLM(c); m.load("gpt2")  
-    total=sum(p.numel() for p in m.parameters())  
-    train=sum(p.numel() for p in m.parameters() if p.requires_grad)  
+    m = MemLLM(c); m.load("gpt2")  
+    total = sum(p.numel() for p in m.parameters())  
+    train = sum(p.numel() for p in m.parameters() if p.requires_grad)  
     print(f"  参数: 总{total:,}  可训练{train:,}  冻结{total-train:,}")  
-    texts=[  
+    texts = [  
         "The cat sat on the mat and watched the birds outside the window.",  
         "Quantum computing uses qubits existing in superposition states.",  
         "She walked along the beach at sunset feeling warm sand beneath her feet.",  
@@ -2219,50 +2716,57 @@ def test():
         "The restaurant served an exquisite five course meal with wine pairings.",  
         "Machine learning algorithms identify patterns in large datasets.",  
         "The ancient temple was hidden deep within the tropical rainforest."]  
-    test_properties(m,c,R)  
-    test_geodesic_gradient(m,c,R)  
-    test_geodesic_no_grad(m,c,R)  
-    test_contrast_dimensions(m,c,R)  
-    test_content_classifier(m,c,R)  
-    test_wte_neighbor_cache(m,c,R)  
-    test_content_semantic_emb(m,c,R)  
-    test_gradient_flow(m,c,R)  
-    test_tree_consistency(m,c,R)  
-    test_deep_tree(c,R)  
-    test_leaf_capacity_stability(c,R)  
-    test_direction_degeneracy(m,c,R)  
-    test_empty_memory(m,c,R)  
-    test_functional(m,c,R,texts)  
-    test_batch_retrieval(m,c,R)  
-    # v3.7 核心验收  
-    test_semantic_retrieval(m,c,R)  
-    test_zero_train_content_grounding(m,c,R)  
-    test_first_step_not_punct(m,c,R,texts)  
-    test_degeneration_quality(m,c,R,texts)  
-    test_domain_semantic_grounding(m,c,R)  
+    test_properties(m, c, R)  
+    test_geodesic_gradient(m, c, R)  
+    test_geodesic_no_grad(m, c, R)  
+    test_contrast_dimensions(m, c, R)  
+    test_content_classifier(m, c, R)  
+    test_wte_neighbor_cache(m, c, R)  
+    test_content_semantic_emb(m, c, R)  
+    test_gradient_flow(m, c, R)  
+    test_tree_consistency(m, c, R)  
+    test_deep_tree(c, R)  
+    test_leaf_capacity_stability(c, R)  
+    test_direction_degeneracy(m, c, R)  
+    test_empty_memory(m, c, R)  
+    test_functional(m, c, R, texts)  
+    test_batch_retrieval(m, c, R)  
+    # v3.12 核心验收  
+    test_token_overlap(m, c, R)  
+    test_expanded_overlap_gating(m, c, R)  
+    test_directional_maxsim(m, c, R)  
+    test_consolidation_domain_guard(m, c, R)  
+    test_retrieval_filtering(m, c, R)  
+    test_content_wte_injection(m, c, R)  
+    test_domain_anchor_tracking(m, c, R)  
+    test_first_step_not_punct(m, c, R, texts)  
+    test_early_steps_not_punct(m, c, R, texts)  
+    test_degeneration_quality(m, c, R, texts)  
+    test_counterfactual_discrimination(m, c, R)  
+    test_domain_semantic_grounding(m, c, R)  
     # 保留  
-    test_ablation_modes(m,c,R,texts)  
-    test_memory_refresh(m,c,R,texts)  
-    test_gradient_balance(m,c,R,texts)  
-    test_quality(m,c,R,texts)  
-    test_dealiaser(m,c,R)  
-    elapsed=time.time()-t0; print(f"\n耗时: {elapsed:.1f}s")  
+    test_ablation_modes(m, c, R, texts)  
+    test_memory_refresh(m, c, R, texts)  
+    test_gradient_balance(m, c, R, texts)  
+    test_quality(m, c, R, texts)  
+    test_dealiaser(m, c, R)  
+    elapsed = time.time() - t0; print(f"\n耗时: {elapsed:.1f}s")  
     print(f"\n┌─ 组件参数量 {'─'*30}┐")  
-    for name,mod in [  
-        ("RiemannianMetric",m.amm.metric),("FiberConnection",m.amm.conn),  
-        ("FiberTransporter",m.amm.trans),("CtxEncoder",m.amm.ctx),  
-        ("FibEncoder",m.amm.fib),("DirectionPredictor",m.amm.dir_pred),  
-        ("EmptyStateNet",m.amm.empty_state),("WriteGate[P]",m.amm.write_gate),  
-        ("RetentionScorer",m.amm.retention),("FiberAttn",m.amm.attn),  
-        ("RetrievalReranker",m.amm.reranker),("ContentBypass",m.bridge.bypass),  
-        ("PrefixSemanticProbe",m.semantic_probe),("PrefixAligner",m.bridge.aligner),  
-        ("MemoryVocabProjector",m.vocab_proj),("QFormerProj",m.bridge.proj),  
-        ("StateExtractor",m.bridge.ext),("AdaptiveLayerPool",m.layer_pool)]:  
+    for name, mod in [  
+        ("RiemannianMetric", m.amm.metric), ("FiberConnection", m.amm.conn),  
+        ("FiberTransporter", m.amm.trans), ("CtxEncoder", m.amm.ctx),  
+        ("FibEncoder", m.amm.fib), ("DirectionPredictor", m.amm.dir_pred),  
+        ("EmptyStateNet", m.amm.empty_state), ("WriteGate[P]", m.amm.write_gate),  
+        ("RetentionScorer", m.amm.retention), ("FiberAttn", m.amm.attn),  
+        ("RetrievalReranker", m.amm.reranker), ("ContentBypass", m.bridge.bypass),  
+        ("PrefixSemanticProbe", m.semantic_probe), ("PrefixAligner", m.bridge.aligner),  
+        ("MemoryVocabProjector", m.vocab_proj), ("QFormerProj", m.bridge.proj),  
+        ("StateExtractor", m.bridge.ext), ("AdaptiveLayerPool", m.layer_pool)]:  
         print(f"│  {name:28s} {sum(p.numel() for p in mod.parameters()):>8,}  │")  
     print(f"└{'─'*44}┘")  
-    nb=len(m.amm.tree.store)*(c.d_M*2+c.d_F+c.d_LLM*2)*4  
+    nb = len(m.amm.tree.store) * (c.d_M*2 + c.d_F + c.d_LLM) * 4  
     print(f"\n记忆存储: {len(m.amm.tree.store)} 条, ~{nb/1024:.1f} KB\n")  
     return R.summary()  
   
-if __name__=="__main__":  
-    ok=test(); exit(0 if ok else 1)  
+if __name__ == "__main__":  
+    ok = test(); exit(0 if ok else 1)  
