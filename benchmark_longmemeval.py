@@ -333,8 +333,7 @@ def main():
     m.load("gpt2")
     print(f"Model loaded: {sum(p.numel() for p in m.parameters()):,} params")
 
-    # Run on first 100 entries (full 500 would take ~1.5 hours)
-    MAX_ENTRIES = 100
+    MAX_ENTRIES = 500
 
     all_results, results_by_type, total_time = run_benchmark(
         m, data, max_entries=MAX_ENTRIES, gen_tokens=40)
