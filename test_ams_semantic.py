@@ -1194,11 +1194,12 @@ def test_three_way_scoring_all_contribute(m, c, R):
 def test_retrieval_weights_sum_to_one(R, c):
     """Configured retrieval weights should sum to 1."""
     print("\n── S41. Retrieval weights sum to 1 ──")
-    total = c.ret_dir_weight + c.ret_sem_weight + c.ret_wte_weight
+    total = (c.ret_forward_maxsim_weight + c.ret_backward_maxsim_weight +
+             c.ret_overlap_weight + c.ret_sem_weight + c.ret_dir_weight)
     R.check("s41_weights_sum_1", abs(total - 1.0) < 1e-5, f"sum={total}")
-    R.check("s41_wte_weight_dominant",
-            c.ret_wte_weight >= c.ret_dir_weight,
-            f"wte={c.ret_wte_weight}, dir={c.ret_dir_weight}")
+    R.check("s41_forward_maxsim_dominant",
+            c.ret_forward_maxsim_weight >= c.ret_dir_weight,
+            f"fwd={c.ret_forward_maxsim_weight}, dir={c.ret_dir_weight}")
 
 
 def test_sem_weight_impact(m, c, R):

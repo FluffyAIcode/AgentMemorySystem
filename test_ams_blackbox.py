@@ -2155,13 +2155,16 @@ def test_single_token_input(m, c, R):
 # 56. Retrieval weights configuration
 # ═══════════════════════════════════════════════════════════════════
 def test_retrieval_weight_config(R, c):
-    """Retrieval weights should sum reasonably and be in valid range."""
+    """v3.12: retrieval weights should sum to 1 and be in valid range."""
     print("\n── 116. Retrieval weight config ──")
-    total = c.ret_dir_weight + c.ret_sem_weight + c.ret_wte_weight
+    total = (c.ret_forward_maxsim_weight + c.ret_backward_maxsim_weight +
+             c.ret_overlap_weight + c.ret_sem_weight + c.ret_dir_weight)
     R.check("ret_weights_sum_to_1", abs(total - 1.0) < 1e-5, f"sum={total}")
-    R.check("ret_dir_weight_range", 0 <= c.ret_dir_weight <= 1)
+    R.check("ret_forward_maxsim_range", 0 <= c.ret_forward_maxsim_weight <= 1)
+    R.check("ret_backward_maxsim_range", 0 <= c.ret_backward_maxsim_weight <= 1)
+    R.check("ret_overlap_range", 0 <= c.ret_overlap_weight <= 1)
     R.check("ret_sem_weight_range", 0 <= c.ret_sem_weight <= 1)
-    R.check("ret_wte_weight_range", 0 <= c.ret_wte_weight <= 1)
+    R.check("ret_dir_weight_range", 0 <= c.ret_dir_weight <= 1)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -2422,7 +2425,7 @@ def test_build_content_bias_edge(m, c, R):
     print("\n── 129. _build_content_bias edge ──")
     diag = RetrievalDiag()
     diag.batch_mem_weights = [[]]
-    bias = m._build_content_bias(diag)
+    bias = m._build_content_bias(diag, [[]])
     R.check("cb_edge_zero", bias.abs().max().item() < 1e-8)
 
 
