@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Agent Memory System (AMS) v3.7 — Semantic-Level Black-Box Test Suite
+Agent Memory System (AMS) v3.12 — Semantic-Level Black-Box Test Suite
 =====================================================================
 
 This suite focuses on *semantic behavior*: does the system remember
@@ -200,26 +200,22 @@ def test_write_semantic_emb_encodes_domain(m, c, R):
     _reset(m)
 
 
-def test_wte_centroid_reflects_domain(m, c, R):
-    """WTE centroids of music vs space texts should be distinguishable."""
-    print("\n── S3. WTE centroid domain separation ──")
+def test_semantic_emb_reflects_domain(m, c, R):
+    """Semantic embeddings of different domains should be distinguishable."""
+    print("\n── S3. Semantic embedding domain separation ──")
     _reset(m)
     m.write("The pianist practiced Chopin nocturne for hours.", training_mode=True)
     m.write("The astronaut trained for the Mars space mission.", training_mode=True)
-
     entries = list(m.amm.tree.store.values())
     if len(entries) >= 2:
-        wte_list = [e.content_wte_centroid for e in entries if e.content_wte_centroid is not None]
-        if len(wte_list) >= 2:
-            sim = F.cosine_similarity(wte_list[0].unsqueeze(0),
-                                      wte_list[1].unsqueeze(0)).item()
-            R.check("s3_wte_centroids_differ",
-                    sim < 0.95,
-                    f"cosine_sim={sim:.4f} (should be < 0.95 for different domains)")
+        sem_list = [e.semantic_emb for e in entries if e.semantic_emb is not None]
+        if len(sem_list) >= 2:
+            sim = F.cosine_similarity(sem_list[0].unsqueeze(0), sem_list[1].unsqueeze(0)).item()
+            R.check("s3_semantic_embs_differ", sim < 0.95, f"cosine_sim={sim:.4f}")
         else:
-            R.check("s3_wte_centroids_differ", False, "not enough WTE centroids")
+            R.check("s3_semantic_embs_differ", False, "not enough sem embs")
     else:
-        R.check("s3_wte_centroids_differ", False, "not enough entries")
+        R.check("s3_semantic_embs_differ", False, "not enough entries")
     _reset(m)
 
 
@@ -772,7 +768,7 @@ def test_training_preserves_memory_consistency(m, c, R):
 
 
 def test_training_refreshes_memories(m, c, R):
-    """Training should trigger memory refresh and preserve WTE centroids."""
+    """Training should trigger memory refresh and preserve semantic embeddings."""
     print("\n── S24. Training triggers memory refresh ──")
     _reset(m)
     texts = [
@@ -785,11 +781,6 @@ def test_training_refreshes_memories(m, c, R):
     trainer = Trainer(m, c)
     trainer.step(texts)
 
-    all_have_wte = all(
-        e.content_wte_centroid is not None
-        for e in m.amm.tree.store.values()
-    )
-    R.check("s24_post_train_wte_preserved", all_have_wte)
     all_have_sem = all(
         e.semantic_emb is not None
         for e in m.amm.tree.store.values()
@@ -1048,7 +1039,7 @@ def test_save_load_preserves_retrieval_quality(m, c, R):
 
 
 def test_save_load_preserves_all_semantic_fields(m, c, R):
-    """After save+load, each entry should have semantic_emb, wte_centroid, etc."""
+    """After save+load, each entry should have semantic_emb, content_ids, etc."""
     print("\n── S35. Save/load preserves all semantic fields ──")
     _reset(m)
     m.write("Violin concerto performance.", training_mode=True)
@@ -1063,7 +1054,6 @@ def test_save_load_preserves_all_semantic_fields(m, c, R):
 
         for e in m.amm.tree.store.values():
             R.check(f"s35_entry_{e.mid}_has_sem_emb", e.semantic_emb is not None)
-            R.check(f"s35_entry_{e.mid}_has_wte_cen", e.content_wte_centroid is not None)
             R.check(f"s35_entry_{e.mid}_has_content_ids", len(e.content_token_ids) > 0)
             R.check(f"s35_entry_{e.mid}_has_source", len(e.source_text) > 0)
     finally:
@@ -1397,9 +1387,7 @@ def test_e2e_save_train_load_compare(m, c, R):
                 entries_before == entries_after)
 
         all_have_sem = all(e.semantic_emb is not None for e in m.amm.tree.store.values())
-        all_have_wte = all(e.content_wte_centroid is not None for e in m.amm.tree.store.values())
         R.check("s48_load_preserves_sem", all_have_sem)
-        R.check("s48_load_preserves_wte", all_have_wte)
     finally:
         os.unlink(path)
     _reset(m)
@@ -1459,7 +1447,7 @@ def main():
 
     sep = "=" * 70
     print(f"\n{sep}")
-    print("  AMS v3.7 — Semantic-Level Black-Box Test Suite")
+    print("  AMS v3.12 — Semantic-Level Black-Box Test Suite")
     print(f"{sep}")
     t0 = time.time()
 
@@ -1473,7 +1461,7 @@ def main():
     # S1-S3: 写入语义完整性
     test_write_preserves_content_tokens(m, c, R)
     test_write_semantic_emb_encodes_domain(m, c, R)
-    test_wte_centroid_reflects_domain(m, c, R)
+    test_semantic_emb_reflects_domain(m, c, R)
 
     # S4-S8: 检索精度
     test_retrieval_music_query_to_music_memory(m, c, R)
