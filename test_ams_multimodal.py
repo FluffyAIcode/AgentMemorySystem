@@ -138,14 +138,12 @@ def _store_image_memory(m, visual_concepts, source_label, surprise=1.5):
             if tid in cc.content_ids:
                 content_ids.append(tid)
     expanded = m._expand_content_ids(content_ids)
-    wte_centroid = m._compute_wte_centroid(content_ids)
     sem_emb = h.clone()
     return m.amm.store_mem(
         h, surprise, training_mode=True,
         source_text=f"[IMAGE] {source_label}",
         content_token_ids=content_ids,
         content_semantic_emb=sem_emb,
-        content_wte_centroid=wte_centroid,
         expanded_content_ids=expanded,
     )
 
@@ -165,14 +163,12 @@ def _store_video_memory(m, frame_concepts_list, source_label, surprise=2.0):
                     content_ids.append(tid)
     content_ids = list(set(content_ids))
     expanded = m._expand_content_ids(content_ids)
-    wte_centroid = m._compute_wte_centroid(content_ids)
     sem_emb = h.clone()
     return m.amm.store_mem(
         h, surprise, training_mode=True,
         source_text=f"[VIDEO] {source_label}",
         content_token_ids=content_ids,
         content_semantic_emb=sem_emb,
-        content_wte_centroid=wte_centroid,
         expanded_content_ids=expanded,
     )
 
@@ -240,7 +236,6 @@ def test_image_memory_stored(m, c, R):
     R.check("m1_has_source", "[IMAGE]" in entry.source_text)
     R.check("m1_has_content_ids", len(entry.content_token_ids) > 0)
     R.check("m1_has_sem_emb", entry.semantic_emb is not None)
-    R.check("m1_has_wte_centroid", entry.content_wte_centroid is not None)
     R.check("m1_has_expanded", len(entry.expanded_content_ids) > 0)
     R.check("m1_base_finite", entry.base.isfinite().all().item())
     R.check("m1_fiber_finite", entry.fiber.isfinite().all().item())
@@ -263,7 +258,6 @@ def test_video_memory_stored(m, c, R):
     R.check("m2_has_multi_frame_content",
             len(entry.content_token_ids) >= 3,
             f"n={len(entry.content_token_ids)}")
-    R.check("m2_has_wte_centroid", entry.content_wte_centroid is not None)
     R.check("m2_base_finite", entry.base.isfinite().all().item())
     _reset(m)
 
@@ -791,7 +785,6 @@ def test_save_load_multimodal(m, c, R):
                 f"before={texts_before}, after={texts_after}")
         for e in m.amm.tree.store.values():
             R.check(f"m26_{e.mid}_sem_emb", e.semantic_emb is not None)
-            R.check(f"m26_{e.mid}_wte_cen", e.content_wte_centroid is not None)
     finally:
         os.unlink(path)
     _reset(m)
@@ -1342,15 +1335,13 @@ def test_large_multimodal_store_retrieval(m, c, R):
         m.amm.store_mem(h, 1.0 + i*0.1, training_mode=True,
                         source_text=f"[IMAGE] scene_{i}",
                         content_token_ids=[100+i],
-                        content_semantic_emb=h.clone(),
-                        content_wte_centroid=torch.randn(c.d_LLM, device=dev))
+                        content_semantic_emb=h.clone())
     for i in range(10):
         h = torch.randn(c.d_LLM, device=dev) * 0.5
         m.amm.store_mem(h, 2.0 + i*0.1, training_mode=True,
                         source_text=f"[VIDEO] clip_{i}",
                         content_token_ids=[200+i],
-                        content_semantic_emb=h.clone(),
-                        content_wte_centroid=torch.randn(c.d_LLM, device=dev))
+                        content_semantic_emb=h.clone())
 
     n_total = len(m.amm.tree.store)
     R.check("m49_large_store", n_total > 10, f"n={n_total}")
