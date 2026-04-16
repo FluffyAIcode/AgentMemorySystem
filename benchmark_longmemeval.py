@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-AMS v3.7 × LongMemEval Benchmark
-==================================
+AMS v3.12 × LongMemEval Benchmark
+===================================
 
-Evaluates AMS as a long-term memory system using the LongMemEval benchmark.
+Evaluates AMS v3.12 as a long-term memory system using the LongMemEval benchmark.
 
 LongMemEval tests 5 memory abilities across 500 questions:
   - Single-session user fact recall
@@ -343,7 +343,7 @@ def main():
     output_path = '/workspace/longmemeval_results.json'
     with open(output_path, 'w') as f:
         json.dump({
-            'config': {'max_entries': MAX_ENTRIES, 'gen_tokens': 40, 'model': 'gpt2'},
+            'config': {'max_entries': MAX_ENTRIES, 'gen_tokens': 40, 'model': 'gpt2', 'ams_version': 'v3.12'},
             'results': all_results,
             'summary': {
                 'total': len(all_results),
