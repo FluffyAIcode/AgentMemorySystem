@@ -1,3 +1,10 @@
+import sys
+from pathlib import Path
+
+_WORKSPACE_PARENT = Path(__file__).resolve().parent.parent
+if str(_WORKSPACE_PARENT) not in sys.path:
+    sys.path.insert(0, str(_WORKSPACE_PARENT))
+
 from scheme_b_v330 import *
 import scheme_b_v330 as v330
 
