@@ -1,0 +1,164 @@
+[case:start] leaf_capacity_stability
+[case:done] leaf_capacity_stability passed=True
+[case:start] degenerate_direction_boundary
+[case:done] degenerate_direction_boundary passed=True
+[case:start] metric_trainability
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+`torch_dtype` is deprecated! Use `dtype` instead!
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 7931.45it/s]
+[case:done] metric_trainability passed=True
+[case:start] no_grad_generation
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10206.52it/s]
+[case:done] no_grad_generation passed=True
+[case:start] counterfactual_memory_influence
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10173.04it/s]
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 8781.27it/s]
+[case:done] counterfactual_memory_influence passed=False
+[case:start] semantic_memory_grounding
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 8501.24it/s]
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 9742.13it/s]
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 9117.70it/s]
+[case:done] semantic_memory_grounding passed=False
+[case:start] semantic_memory_counterfactual_pairs
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 8434.37it/s]
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 9927.21it/s]
+[case:done] semantic_memory_counterfactual_pairs passed=False
+[case:start] degeneration_quality
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10086.48it/s]
+[case:done] degeneration_quality passed=False
+[case:start] prefix_logit_drift_audit
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10273.75it/s]
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 11012.35it/s]
+[case:done] prefix_logit_drift_audit passed=False
+[case:start] retrieval_topk_semantic_shift
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 9701.40it/s]
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 9665.94it/s]
+[case:done] retrieval_topk_semantic_shift passed=False
+[case:start] repetition_segment_audit
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 9943.57it/s]
+[case:done] repetition_segment_audit passed=True
+[case:start] prefix_stepwise_drift_trajectory
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10514.22it/s]
+[case:done] prefix_stepwise_drift_trajectory passed=False
+[case:start] retrieval_generation_alignment_audit
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10205.93it/s]
+[case:done] retrieval_generation_alignment_audit passed=False
+[case:start] retrieval_prefix_decode_correlation_audit
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 9576.36it/s]
+[case:done] retrieval_prefix_decode_correlation_audit passed=True
+[case:start] stepwise_label_mass_alignment_audit
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 8467.12it/s]
+[case:done] stepwise_label_mass_alignment_audit passed=False
+[case:start] prompt_diversity_without_memory
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10552.18it/s]
+[case:done] prompt_diversity_without_memory passed=True
+[case:start] save_load_consistency
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10338.18it/s]
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 9385.53it/s]
+[case:done] save_load_consistency passed=True
+[case:start] training_cache_isolation
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 9586.66it/s]
+[case:done] training_cache_isolation passed=True
+[case:start] cheating_heuristics
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 9982.85it/s]
+[case:done] cheating_heuristics passed=True
+{
+  "checks": [
+    {
+      "name": "leaf_capacity_stability",
+      "passed": true,
+      "detail": "{\"per_seed\": [{\"seed\": 0, \"depth\": 6, \"count\": 240, \"violations\": [], \"consistency\": [], \"passed\": true}, {\"seed\": 1, \"depth\": 6, \"count\": 240, \"violations\": [], \"consistency\": [], \"passed\": true}, {\"seed\": 2, \"depth\": 6, \"count\": 240, \"violations\": [], \"consistency\": [], \"passed\": true}, {\"seed\": 3, \"depth\": 6, \"count\": 240, \"violations\": [], \"consistency\": [], \"passed\": true}, {\"seed\": 4, \"depth\": 6, \"count\": 240, \"violations\": [], \"consistency\": [], \"passed\": true}, {\"seed\": 5, \"depth\": 5, \"count\": 240, \"violations\": [], \"consistency\": [], \"passed\": true}, {\"seed\": 6, \"depth\": 6, \"count\": 240, \"violations\": [], \"consistency\": [], \"passed\": true}, {\"seed\": 7, \"depth\": 5, \"count\": 240, \"violations\": [], \"consistency\": [], \"passed\": true}]}"
+    },
+    {
+      "name": "degenerate_direction_boundary",
+      "passed": true,
+      "detail": "{\"depth\": 47, \"count\": 100, \"violations\": [], \"consistency\": [], \"seed\": 17}"
+    },
+    {
+      "name": "metric_trainability",
+      "passed": true,
+      "detail": "{\"training_info\": {\"total\": 260.33465576171875, \"recon\": 3.027585029602051, \"contrast\": 123.25140380859375, \"holonomy\": 42737.06640625, \"write_policy\": 2.718179941177368, \"semantic_probe\": 0.0, \"dir_diversity\": 0.0, \"reranker_ranking\": 0.0, \"encoder_throughput\": 3.9514379501342773, \"vocab_anchor\": -0.0, \"semantic_alignment\": 9.985305786132812, \"tail_semantic_anchor\": 10.003637313842773, \"grad_norms\": {\"ctx_encoder\": 6.533581582490527e-12, \"fib_encoder\": 2.731876231929138e-09, \"dir_predictor\": 1.0382596359625192e-13, \"fiber_connection\": 4.093225671603302e-07, \"fiber_attn\": 1.0263617963792416e-10, \"reranker\": 2.0931047061238405e-12, \"qformer\": 4.171810563356554e-09, \"content_bypass\": 5.131816747590266e-10, \"semantic_probe\": 0.0, \"layer_pool\": 5.5969056056426325e-09, \"prefix_aligner\": 8.353048220281766e-11, \"vocab_proj\": 1.0000050593801983, \"tail_head\": 3.83927238081513e-09}, \"loss_weights\": {\"recon\": 1.0, \"semantic_alignment\": 3.0, \"encoder_throughput\": 1.5, \"contrast\": 0.02, \"holonomy\": 0.005, \"write_policy\": 0.1, \"semantic_probe\": 0.3, \"dir_diversity\": 0.1, \"reranker_ranking\": 0.2, \"vocab_anchor\": 0.2}}, \"metric_grad_norms\": [3.273699977768274e-09, 4.7181248491456884e-11, 2.0874542"
+    },
+    {
+      "name": "no_grad_generation",
+      "passed": true,
+      "detail": "{\"stored_memories\": 8, \"output\": \"The pianist played piano and sang a beautiful —— at the concert yesterday evening. A.song B.songs C.playing D.sh\"}"
+    },
+    {
+      "name": "counterfactual_memory_influence",
+      "passed": false,
+      "detail": "{\"prompt\": \"Tell me something about practice and performance.\", \"music_output\": \"Tell me something about practice and performance. Practice and performance are related but distinct concepts. **Practice** refers to the act of practicing a skill or activity repeatedly,\", \"space_output\": \"Tell me something about practice and performance. Practice and performance are related but distinct concepts. **Practice** refers to the act of practicing a skill or activity repeatedly,\", \"outputs_differ\": false}"
+    },
+    {
+      "name": "semantic_memory_grounding",
+      "passed": false,
+      "detail": "{\"prompt\": \"Explain what someone should focus on when improving technique and understanding the subject.\", \"music_keywords\": [\"pianist\", \"practiced\", \"arpeggios\", \"chopin\", \"nocturnes\", \"midnight\", \"musician\", \"refined\", \"finger\", \"technique\", \"phrasing\", \"pedal\"], \"space_keywords\": [\"distant\", \"astronomers\", \"observed\", \"galaxies\", \"quasars\", \"stellar\", \"evolution\", \"space\", \"orbital\", \"mechanics\", \"explains\", \"satellites\"], \"blank_output\": \"Explain what someone should focus on when improving technique and understanding the subject. Explain what someone should focus on when improving technique and understanding the subject\\\\n要提升寫Explain difference between\\n为了回答這個問題，我需要更多的具體\", \"music_output\": \"Explain what someone should focus on when improving technique and understanding the subject. BMW badge badges are a type of ExExplain what someone should focus on when improving technique and understanding the symbolism:\\n\\n\\nThe first digit 'B' stands for\", \"space_output\": \"Explain what someone should focus on when improving technique and understanding the subject. Technique refers to______． A.the way in which the subject is expressed or performed. B、the content of a person's thoughts and fe"
+    },
+    {
+      "name": "semantic_memory_counterfactual_pairs",
+      "passed": false,
+      "detail": "{\"rows\": [{\"prompt\": \"Describe the most important details a student should notice.\", \"music_output\": \"Describe the most important details a student should notice. 很多人认为篮球比赛是______的，因为_____。请根据以上这段文本内容写成为什么很多人会说“乒乓球\", \"space_output\": \"Describe the most important details a student should notice. Respond finished loading...\\\\nHome » Aptitude Test Results \\\\\\\"defense lawyer girl\\\\\\\" dan \\\"best online dating sites for men\\\\n CS 2\", \"music_margin\": 0.0, \"space_margin\": 0.0, \"passed\": false}, {\"prompt\": \"Summarize the key ideas a learner should practice and remember.\", \"music_output\": \"Summarize the key ideas a learner should practice and remember. Love reading and writing stories, practice speaking English every day，and ask your teacher for help.____伍经理如何评价新员工小王\", \"space_output\": \"Summarize the key ideas a learner should practice and remember. Love your job: This means showing genuine interest in the material, being interested to learn new things related\\nA. Remember key ideas about perseverance\", \"music_margin\": 0.0, \"space_margin\": 0.0, \"passed\": false}]}"
+    },
+    {
+      "name": "degeneration_quality",
+      "passed": false,
+      "detail": "{\"metrics\": [{\"prompt\": \"The pianist\", \"output\": \"The pianist played here again and her performance was great renvoie < Fill in the dots > encore\\n  €50€1.962\", \"token_count\": 14, \"unique_token_ratio\": 1.0, \"repeated_bigram_ratio\": 0.0, \"max_token_run\": 1, \"punct_ratio\": 0.04672897196261682, \"newline_ratio\": 0.009345794392523364, \"alpha_ratio\": 0.7102803738317757, \"content_token_ratio\": 0.6428571428571429, \"generated_preview\": \"played here again and her performance was great renvoie fill in the dots encore\"}, {\"prompt\": \"The telescope\", \"output\": \"The telescope's schedule for the conference is as follows: it will be active from 10 AM to **5 PM**. Therefore, option C\", \"token_count\": 20, \"unique_token_ratio\": 0.95, \"repeated_bigram_ratio\": 0.0, \"max_token_run\": 1, \"punct_ratio\": 0.06666666666666667, \"newline_ratio\": 0.0, \"alpha_ratio\": 0.7333333333333333, \"content_token_ratio\": 0.4, \"generated_preview\": \"the telescope's schedule for the conference is as follows it will be active from am to pm therefore option c\"}, {\"prompt\": \"The forest path\", \"output\": \"The forest path đi qua những cánh rừng cây xanh mát, núi đồi và các ngọn suối nhỏ. Đó là con đường của người dân\", \"token_count\": "
+    },
+    {
+      "name": "prefix_logit_drift_audit",
+      "passed": false,
+      "detail": "{\"prompt\": \"Explain the topic in a precise and concrete way.\", \"blank\": {\"js_divergence\": 0.43499448895454407, \"l2_shift\": 1075.050048828125, \"topk_overlap_count\": 1, \"entropy_no_prefix\": 5.256593227386475, \"entropy_with_prefix\": 4.675998687744141, \"topk_no_prefix\": [{\"token_id\": 576, \"piece\": \" The\", \"norm\": \"the\", \"logit\": 19.875, \"prob\": 0.12818092107772827}, {\"token_id\": 22555, \"piece\": \" Sure\", \"norm\": \"sure\", \"logit\": 19.5, \"prob\": 0.08809737861156464}, {\"token_id\": 55313, \"piece\": \" Quantum\", \"norm\": \"quantum\", \"logit\": 18.75, \"prob\": 0.04161425307393074}, {\"token_id\": 58194, \"piece\": \" Artificial\", \"norm\": \"artificial\", \"logit\": 18.625, \"prob\": 0.03672444820404053}, {\"token_id\": 30536, \"piece\": \" Climate\", \"norm\": \"climate\", \"logit\": 18.375, \"prob\": 0.02860102988779545}, {\"token_id\": 2585, \"piece\": \" How\", \"norm\": \"how\", \"logit\": 18.25, \"prob\": 0.025240320712327957}, {\"token_id\": 3555, \"piece\": \" What\", \"norm\": \"what\", \"logit\": 18.125, \"prob\": 0.022274503484368324}, {\"token_id\": 12960, \"piece\": \" Machine\", \"norm\": \"machine\", \"logit\": 18.125, \"prob\": 0.022274503484368324}, {\"token_id\": 2885, \"piece\": \" Data\", \"norm\": \"data\", \"logit\": 17.875, \"prob\": 0.01734740100800991}, {\"t"
+    },
+    {
+      "name": "retrieval_topk_semantic_shift",
+      "passed": false,
+      "detail": "{\"music_keywords\": [\"pianist\", \"practiced\", \"arpeggios\", \"chopin\", \"nocturnes\", \"midnight\", \"musician\", \"refined\", \"finger\", \"technique\", \"phrasing\", \"pedal\"], \"space_keywords\": [\"distant\", \"astronomers\", \"observed\", \"galaxies\", \"quasars\", \"stellar\", \"evolution\", \"space\", \"orbital\", \"mechanics\", \"explains\", \"satellites\"], \"rows\": [{\"prompt\": \"A strong explanation should mention\", \"music_no_prefix\": [{\"token_id\": 279, \"piece\": \" the\", \"norm\": \"the\", \"logit\": 21.125, \"prob\": 0.31038299202919006}, {\"token_id\": 518, \"piece\": \" at\", \"norm\": \"at\", \"logit\": 19.5, \"prob\": 0.06111803650856018}, {\"token_id\": 264, \"piece\": \" a\", \"norm\": \"a\", \"logit\": 19.375, \"prob\": 0.05393647775053978}, {\"token_id\": 2176, \"piece\": \" both\", \"norm\": \"both\", \"logit\": 19.0, \"prob\": 0.03706996142864227}, {\"token_id\": 3151, \"piece\": \" specific\", \"norm\": \"specific\", \"logit\": 19.0, \"prob\": 0.03706996142864227}, {\"token_id\": 429, \"piece\": \" that\", \"norm\": \"that\", \"logit\": 18.625, \"prob\": 0.025477787479758263}, {\"token_id\": 1246, \"piece\": \" how\", \"norm\": \"how\", \"logit\": 18.625, \"prob\": 0.025477787479758263}, {\"token_id\": 678, \"piece\": \" all\", \"norm\": \"all\", \"logit\": 18.5, \"prob\": 0.0224840696901083}, {\"token_id\": 1029"
+    },
+    {
+      "name": "repetition_segment_audit",
+      "passed": true,
+      "detail": "{\"aggregate\": {\"bad_segment_ratio\": 0.09090909090909091, \"total_segments\": 11, \"bad_segments\": 1, \"early_collapse_prompts\": []}, \"rows\": [{\"prompt\": \"The pianist\", \"output\": \"The pianist will arrive at 7:15. 德国人德国人澳大利亚人都喜欢吃披萨。 The Germans, the Danes and Australians all like pizza . 敂�将在电影院等我 You will wait for me at a cinema. �\", \"generated_token_count\": 20, \"window\": 8, \"segments\": [{\"segment_idx\": 0, \"tokens\": [\"will\", \"arrive\", \"at\", \"the\", \"germans\", \"the\", \"danes\", \"and\"], \"unique_ratio\": 0.875, \"content_ratio\": 0.5, \"repeated_bigram_ratio\": 0.0, \"dominant_token_share\": 0.25}, {\"segment_idx\": 1, \"tokens\": [\"australians\", \"all\", \"like\", \"pizza\", \"you\", \"will\", \"wait\", \"for\"], \"unique_ratio\": 1.0, \"content_ratio\": 0.625, \"repeated_bigram_ratio\": 0.0, \"dominant_token_share\": 0.125}, {\"segment_idx\": 2, \"tokens\": [\"me\", \"at\", \"a\", \"cinema\"], \"unique_ratio\": 1.0, \"content_ratio\": 0.25, \"repeated_bigram_ratio\": 0.0, \"dominant_token_share\": 0.25}], \"bad_segments\": [], \"first_bad_segment_idx\": null}, {\"prompt\": \"The telescope\", \"output\": \"The telescope you lent me is mine now．（同义句型转换） The telescope _____. Mozart的唱片已经售罄。（完成完形ifnfo/Mozart oper album has been sold out. 20名学生参加了这次\", \"genera"
+    },
+    {
+      "name": "prefix_stepwise_drift_trajectory",
+      "passed": false,
+      "detail": "{\"rows\": [{\"prompt\": \"Key piano ideas include\", \"first_bad_step\": 0, \"decoded_output\": \"Key piano ideas include: 1. The use of a grand piano for its rich, resonant\", \"rows\": [{\"step\": 0, \"top1\": {\"token_id\": 25, \"piece\": \":\", \"norm\": \"\", \"logit\": 17.625, \"prob\": 0.12786318361759186}, \"top1_category\": \"punct\", \"topk_category_counts\": {\"semantic\": 0, \"functional\": 3, \"punct\": 9}, \"topk_category_prob_mass\": {\"semantic\": 0.0, \"functional\": 0.18933850806206465, \"punct\": 0.33162419497966766}, \"chosen_token_id\": 25, \"chosen_piece\": \":\", \"chosen_norm\": \"\", \"chosen_category\": \"punct\"}, {\"step\": 1, \"top1\": {\"token_id\": 220, \"piece\": \" \", \"norm\": \"\", \"logit\": 15.625, \"prob\": 0.10892719775438309}, \"top1_category\": \"punct\", \"topk_category_counts\": {\"semantic\": 1, \"functional\": 4, \"punct\": 7}, \"topk_category_prob_mass\": {\"semantic\": 0.007412588689476252, \"functional\": 0.08527705539017916, \"punct\": 0.21729147899895906}, \"chosen_token_id\": 220, \"chosen_piece\": \" \", \"chosen_norm\": \"\", \"chosen_category\": \"punct\"}, {\"step\": 2, \"top1\": {\"token_id\": 16, \"piece\": \"1\", \"norm\": \"\", \"logit\": 18.375, \"prob\": 0.6832453608512878}, \"top1_category\": \"punct\", \"topk_category_counts\": {\"semantic\": 0, \"functional\":"
+    },
+    {
+      "name": "retrieval_generation_alignment_audit",
+      "passed": false,
+      "detail": "{\"music_keywords\": [\"pianist\", \"practiced\", \"arpeggios\", \"chopin\", \"nocturnes\", \"midnight\", \"musician\", \"refined\", \"finger\", \"technique\", \"phrasing\", \"pedal\"], \"space_keywords\": [\"distant\", \"astronomers\", \"observed\", \"galaxies\", \"quasars\", \"stellar\", \"evolution\", \"space\", \"orbital\", \"mechanics\", \"explains\", \"satellites\"], \"diagnoses\": {\"aligned\": 1, \"retrieval_miss\": 1, \"bridge_unused\": 1, \"unknown\": 0}, \"rows\": [{\"prompt\": \"What improves piano technique and musical phrasing?\", \"expected_label\": \"music\", \"retrieved_mids\": [3, 5, 1, 6, 7], \"retrieved_label_counts\": {\"music\": 2, \"space\": 3}, \"retrieved_majority_label\": \"space\", \"retrieved_text_preview\": [\"A conservatory student studied etudes, scales, and expressive voicing on the keyboard.\", \"Orbital mechanics explains how satellites and planets move under gravitational force.\", \"A musician refined finger technique, phrasing, and pedal control on the piano.\"], \"output\": \"What improves piano technique and musical phrasing? Options:a．Practiceb. technique practicec .practice techniquesd.dont play too fast\\\\nScience Chemistry - chemistry of life help please!!!\", \"music_score\": 0.15, \"space_score\": 0.0, \"generated_label\": \"music\", \"diagn"
+    },
+    {
+      "name": "retrieval_prefix_decode_correlation_audit",
+      "passed": true,
+      "detail": "{\"correlations\": {\"retrieval_strength__prefix_l2\": 0.47129727854893727, \"retrieval_strength__bad_decode_score\": -0.5153013642952196, \"prefix_l2__bad_decode_score\": -0.8119768806119197}, \"rows\": [{\"prompt\": \"What improves piano technique and musical phrasing?\", \"expected_label\": \"music\", \"retrieved_scored\": [{\"mid\": 6, \"score\": -0.46566978096961975}, {\"mid\": 4, \"score\": -0.5127263069152832}, {\"mid\": 7, \"score\": -0.6141006350517273}, {\"mid\": 5, \"score\": -0.6516022086143494}, {\"mid\": 2, \"score\": -0.7098392248153687}], \"retrieved_label_counts\": {\"space\": 4, \"music\": 1}, \"retrieval_strength\": -0.7098392248153687, \"prefix_l2_shift\": 1036.929443359375, \"prefix_js_divergence\": 0.3171480894088745, \"top1_with_prefix\": {\"token_id\": 220, \"piece\": \" \", \"norm\": \"\", \"logit\": 12.0, \"prob\": 0.05946128070354462}, \"top1_category_with_prefix\": \"punct\", \"topk_non_semantic_prob_mass\": 0.2697937758639455}, {\"prompt\": \"What explains satellites and orbital motion?\", \"expected_label\": \"space\", \"retrieved_scored\": [{\"mid\": 6, \"score\": -0.496165931224823}, {\"mid\": 4, \"score\": -0.5487112402915955}, {\"mid\": 7, \"score\": -0.6517217755317688}, {\"mid\": 5, \"score\": -0.684630811214447}, {\"mid\": 2, \"score\": -0.7428811"
+    },
+    {
+      "name": "stepwise_label_mass_alignment_audit",
+      "passed": false,
+      "detail": "{\"label_keywords\": {\"music\": [\"pianist\", \"practiced\", \"arpeggios\", \"chopin\", \"nocturnes\", \"midnight\", \"musician\", \"refined\", \"finger\", \"technique\", \"phrasing\", \"pedal\"], \"space\": [\"distant\", \"astronomers\", \"observed\", \"galaxies\", \"quasars\", \"stellar\", \"evolution\", \"space\", \"orbital\", \"mechanics\", \"explains\", \"satellites\"]}, \"rows\": [{\"prompt\": \"What improves piano technique and musical phrasing?\", \"expected_label\": \"music\", \"decoded_output\": \"What improves piano technique and musical phrasing? 1. **Understanding the Question**: The question asks about\", \"stage_counts\": {\"inject\": 8, \"retrieve\": 4}, \"rows\": [{\"step\": 0, \"retrieved_majority_label\": \"music\", \"retrieved_label_counts\": {\"music\": 3, \"space\": 2}, \"retrieved_score_sum\": {\"music\": 0.19865716993808746, \"space\": 0.1326199248433113}, \"logits_label_mass\": {\"music\": 0, \"space\": 0}, \"top1_piece\": \" \", \"top1_category\": \"punct\", \"chosen_piece\": \" \", \"chosen_category\": \"punct\", \"chosen_label\": null, \"diagnosed_stage\": \"inject\"}, {\"step\": 1, \"retrieved_majority_label\": \"music\", \"retrieved_label_counts\": {\"music\": 3, \"space\": 2}, \"retrieved_score_sum\": {\"music\": 0.19865716993808746, \"space\": 0.1326199248433113}, \"logits_label_mass\": {"
+    },
+    {
+      "name": "prompt_diversity_without_memory",
+      "passed": true,
+      "detail": "{\"prompts\": [\"The pianist\", \"Quantum systems\", \"The rainforest\"], \"outputs\": [\"The pianist-ios版是一款什么类型的软件？\\nA. 游戏<\\\\/p> <-{amic\", \"Quantum systems系列产品有哪些产品系列？\\nABCDE ABCD 解析：华为云量子计算品牌“澜\", \"The rainforest公司将推出自家操作系统后，以下哪个平台提供每日、每周或每月发布净水行业\"], \"unique_count\": 3}"
+    },
+    {
+      "name": "save_load_consistency",
+      "passed": true,
+      "detail": "{\"prompt\": \"The pianist\", \"output_a\": \"The pianist的官方预告片！视频中可以看到Dragonboat Festival乐队主唱Peter KnighterPhoenix\", \"output_b\": \"The pianist的官方预告片！视频中可以看到Dragonboat Festival乐队主唱Peter KnighterPhoenix\"}"
+    },
+    {
+      "name": "training_cache_isolation",
+      "passed": true,
+      "detail": "{\"changed\": [], \"memory_count\": 8}"
+    },
+    {
+      "name": "cheating_heuristics",
+      "passed": true,
+      "detail": "{\"outputs\": [\"The pianist played a piano piece called \\\"The Beatles Theme from A Hard Day's Night,\\\" which is\", \"The telescope is on Tommy ________ desk.________ he be Tom？ A：a； could B\", \"The trader bought a pair of trainers for Kate last year at 0.65 euros and sold\", \"The child _____ in the classroom suddenly fell off his _____. Fill blanks: graduation______. A falls\"], \"exact_same\": false, \"prefix_only\": false, \"too_short\": false}"
+    }
+  ],
+  "elapsed_seconds": 1005.0666241645813
+}
