@@ -1,0 +1,3608 @@
+# `AgentMemorySystem v331` Detailed Black-box Test Report
+
+- Elapsed: `1099.4s`
+- Passed: `14/19`
+- Mode: fully external runner, no reuse of module-internal `test()`
+- Policy: no monkeypatching, no mocked return values, no synthetic pass-by-construction shortcuts
+
+## Summary
+
+- `PASS` `leaf_capacity_stability`: {"per_seed": [{"seed": 0, "depth": 6, "count": 240, "violations": [], "consistency": [], "passed": true}, {"seed": 1, "depth": 6, "count": 240, "violations": [], "consistency": [], "passed": true}, {"seed": 2, "depth": 6, "count": 240, "violations": [], "consistency": [], "passed": true}, {"seed": 3, "depth": 6, "count": 240, "violations": [], "consistency": [], "passed": true}, {"seed": 4, "depth": 6, "count": 240, "violations": [], "consistency": [], "passed": true}, {"seed": 5, "depth": 5, "count": 240, "violations": [], "consistency": [], "passed": true}, {"seed": 6, "depth": 6, "count": 240, "violations": [], "consistency": [], "passed": true}, {"seed": 7, "depth": 5, "count": 240, "violations": [], "consistency": [], "passed": true}]}
+- `PASS` `degenerate_direction_boundary`: {"depth": 47, "count": 100, "violations": [], "consistency": [], "seed": 17}
+- `PASS` `metric_trainability`: {"training_info": {"total": 427.3717041015625, "recon": 2.9565038681030273, "contrast": 17888.765625, "holonomy": 5206.763671875, "write_policy": 1.2801257371902466, "semantic_probe": 0.0, "dir_diversity": 0.0, "reranker_ranking": 0.0, "encoder_throughput": 3.7922558784484863, "vocab_anchor": -0.0, "semantic_alignment": 9.940794944763184, "tail_semantic_anchor": 9.934552192687988, "grad_norms": {"ctx_encoder": 5.512282921135631e-12, "fib_encoder": 2.2757680619031593e-09, "dir_predictor": 0.0, "fiber_connection": 4.7619314000630244e-08, "fiber_attn": 5.288609216022044e-11, "reranker": 9.430327858863409e-14, "qformer": 3.3202099058687253e-09, "content_bypass": 6.561078666845643e-10, "semantic_probe": 0.0, "layer_pool": 1.9807308149211167e-07, "prefix_aligner": 5.181229697493391e-11, "vocab_proj": 1.00000191427639, "tail_head": 2.594215171390375e-09}, "loss_weights": {"recon": 1.0, "semantic_alignment": 3.0, "encoder_throughput": 1.5, "contrast": 0.02, "holonomy": 0.005, "write_policy": 0.1, "semantic_probe": 0.3, "dir_diversity": 0.1, "reranker_ranking": 0.2, "vocab_anchor": 0.2, "tail_semantic_anchor": 0.5}}, "metric_grad_norms": [2.1457201293539896e-10, 5.218824938174604e-12, 3.427
+- `PASS` `no_grad_generation`: {"stored_memories": 8, "output": "The pianist piano piano lessons Melbourne CBD Novibebop jazz 韷新手该如何入手Novil Jazz piano？\n答题\\n �"}
+- `PASS` `counterfactual_memory_influence`: {"prompt": "Tell me something about practice and performance.", "music_output": "Tell me something about practice and performance. practiced practiced Kent牧羊犬很高兴。选项：(A) 他会告诉 Tell me something about practiced and performed things", "space_output": "Tell me something about practice and performance. signatures captured stars neb distant telescope spectral signatures spectral telescope stars的中文 captured neb\nEnglish–>Simpilanalytics ", "outputs_differ": true}
+- `FAIL` `semantic_memory_grounding`: {"prompt": "Explain what someone should focus on when improving technique and understanding the subject.", "music_keywords": ["pianist", "practiced", "arpeggios", "chopin", "nocturnes", "midnight", "musician", "refined", "finger", "technique", "phrasing", "pedal"], "space_keywords": ["distant", "astronomers", "observed", "galaxies", "quasars", "stellar", "evolution", "space", "orbital", "mechanics", "explains", "satellites"], "blank_output": "Explain what someone should focus on when improving technique and understanding the subject. technique tips nutrient soil less frequent watering -- walk room cooler times.\nless timeHuman: Ohio weather tolerant to what?  .available lightAvailable sunlight.Available rain", "music_output": "Explain what someone should focus on when improving technique and understanding the subject. technique technique refers to the way that’s used in writing, photography or speech\\n谢谢！ technique 指写作、写诗作演讲时，研究者", "space_output": "Explain what someone should focus on when improving technique and understanding the subject. telescope spectral signatures captured stars neb\\n首页 spectral captured neb signatures telescope stars Eckexplain telescope spectral Explain si
+- `FAIL` `semantic_memory_counterfactual_pairs`: {"rows": [{"prompt": "Describe the most important details a student should notice.", "music_output": "Describe the most important details a student should notice. dynamics rub often depends interpretation touch tempo dynamics rub depends tempo interpretation\r\nLinux often depoproply on environment PATH env path propo Linux\r\n\r\n", "space_output": "Describe the most important details a student should notice. stars neb signatures telescope captured distant spectral signatures stars neb spectral telescope captured distant star clusters stars neb signatures\\nRyan\n选项不清楚的时候选了stars", "music_margin": 0.0, "space_margin": 0.08695652173913043, "passed": false}, {"prompt": "Summarize the key ideas a learner should practice and remember.", "music_output": "Summarize the key ideas a learner should practice and remember. interpretation depends often rub dynamics tempo touch tempo dynamics interpretation rub touch often 呜铃 depends interpretation often重复\n西安电子科技博物馆有限公司版权所有解释", "space_output": "Summarize the key ideas a learner should practice and remember. telescope neb signatures captured spectral signatures telescope stars stars captured spectral neb\\n继续\n 云计算国产化之后，还要解决一个核心问题？0", "music_ma
+- `FAIL` `degeneration_quality`: {"metrics": [{"prompt": "The pianist", "output": "The pianist pian pian etc elleeRpmn的粉紅色粉色紫色綠紫褐色淺藍色淡灰色嫩白色的小狗 - Google", "token_count": 5, "unique_token_ratio": 0.8, "repeated_bigram_ratio": 0.0, "max_token_run": 2, "punct_ratio": 0.014705882352941176, "newline_ratio": 0.0, "alpha_ratio": 0.8823529411764706, "content_token_ratio": 0.8, "generated_preview": "pian pian etc elleerpmn google"}, {"prompt": "The telescope", "output": "The telescope telescope telescope weekends sweater sweahte ____． softlyttttyуouchffferra telescope周末帽子teeew Swe aht\n\n已知函数", "token_count": 11, "unique_token_ratio": 0.8181818181818182, "repeated_bigram_ratio": 0.0, "max_token_run": 2, "punct_ratio": 0.04132231404958678, "newline_ratio": 0.01652892561983471, "alpha_ratio": 0.8512396694214877, "content_token_ratio": 0.8181818181818182, "generated_preview": "telescope telescope weekends sweater sweahte softlytttty ouchffferra telescope teeew swe aht"}, {"prompt": "The forest path", "output": "The forest path often depends rub dynamics touch tempo interpretation interpretation touch dynamics often tempo depends Dart TypeScript--Flutter开发网\n\nCertainly! Let's rewrite the title.", "token_count": 21, "unique_tok
+- `PASS` `prefix_logit_drift_audit`: {"prompt": "Explain the topic in a precise and concrete way.", "blank": {"js_divergence": 0.3597820997238159, "l2_shift": 1045.0601806640625, "topk_overlap_count": 3, "entropy_no_prefix": 5.256593227386475, "entropy_with_prefix": 5.254775047302246, "topk_no_prefix": [{"token_id": 576, "piece": " The", "norm": "the", "logit": 19.875, "prob": 0.12818092107772827}, {"token_id": 22555, "piece": " Sure", "norm": "sure", "logit": 19.5, "prob": 0.08809737861156464}, {"token_id": 55313, "piece": " Quantum", "norm": "quantum", "logit": 18.75, "prob": 0.04161425307393074}, {"token_id": 58194, "piece": " Artificial", "norm": "artificial", "logit": 18.625, "prob": 0.03672444820404053}, {"token_id": 30536, "piece": " Climate", "norm": "climate", "logit": 18.375, "prob": 0.02860102988779545}, {"token_id": 2585, "piece": " How", "norm": "how", "logit": 18.25, "prob": 0.025240320712327957}, {"token_id": 3555, "piece": " What", "norm": "what", "logit": 18.125, "prob": 0.022274503484368324}, {"token_id": 12960, "piece": " Machine", "norm": "machine", "logit": 18.125, "prob": 0.022274503484368324}, {"token_id": 2885, "piece": " Data", "norm": "data", "logit": 17.875, "prob": 0.01734740100800991}, {"t
+- `FAIL` `retrieval_topk_semantic_shift`: {"music_keywords": ["pianist", "practiced", "arpeggios", "chopin", "nocturnes", "midnight", "musician", "refined", "finger", "technique", "phrasing", "pedal"], "space_keywords": ["distant", "astronomers", "observed", "galaxies", "quasars", "stellar", "evolution", "space", "orbital", "mechanics", "explains", "satellites"], "rows": [{"prompt": "A strong explanation should mention", "music_no_prefix": [{"token_id": 279, "piece": " the", "norm": "the", "logit": 21.125, "prob": 0.31038299202919006}, {"token_id": 518, "piece": " at", "norm": "at", "logit": 19.5, "prob": 0.06111803650856018}, {"token_id": 264, "piece": " a", "norm": "a", "logit": 19.375, "prob": 0.05393647775053978}, {"token_id": 2176, "piece": " both", "norm": "both", "logit": 19.0, "prob": 0.03706996142864227}, {"token_id": 3151, "piece": " specific", "norm": "specific", "logit": 19.0, "prob": 0.03706996142864227}, {"token_id": 429, "piece": " that", "norm": "that", "logit": 18.625, "prob": 0.025477787479758263}, {"token_id": 1246, "piece": " how", "norm": "how", "logit": 18.625, "prob": 0.025477787479758263}, {"token_id": 678, "piece": " all", "norm": "all", "logit": 18.5, "prob": 0.0224840696901083}, {"token_id": 1029
+- `PASS` `repetition_segment_audit`: {"aggregate": {"bad_segment_ratio": 0.1111111111111111, "total_segments": 9, "bad_segments": 1, "early_collapse_prompts": ["The telescope"]}, "rows": [{"prompt": "The pianist", "output": "The pianist pian pian piano\\n喝水吃饭刷牙很重要吗喝完水应该休息多久 http://edu-warehgtqx.com/回答 更换避孕套的时间\n如何预防宫颈息乳头癌？http://www.health-healthcare.org", "generated_token_count": 13, "window": 8, "segments": [{"segment_idx": 0, "tokens": ["pian", "pian", "piano", "n", "http", "edu", "warehgtqx", "com"], "unique_ratio": 0.875, "content_ratio": 0.625, "repeated_bigram_ratio": 0.0, "dominant_token_share": 0.25}, {"segment_idx": 1, "tokens": ["http", "www", "health", "healthcare", "org"], "unique_ratio": 1.0, "content_ratio": 0.6, "repeated_bigram_ratio": 0.0, "dominant_token_share": 0.2}], "bad_segments": [], "first_bad_segment_idx": null}, {"prompt": "The telescope", "output": "The telescope telescope telescope haha //ǒé舌尖化的输入乱码在这里会损坏设备吗？ 在讨论泡泡文本内容时，我理解您在询问潜水代码或特殊编程语言中的潜在风险。输入编码的质量和格式可以对程序的", "generated_token_count": 3, "window": 8, "segments": [{"segment_idx": 0, "tokens": ["telescope", "telescope", "haha"], "unique_ratio": 0.6666666666666666, "content_ratio": 1.0, "repeated_bigram_ratio": 0.0, "dominant_token_share":
+- `PASS` `prefix_stepwise_drift_trajectory`: {"rows": [{"prompt": "Key piano ideas include", "first_bad_step": 3, "decoded_output": "Key piano ideas include piano music played by a group of people, piano music played by a single person", "rows": [{"step": 0, "top1": {"token_id": 26278, "piece": " piano", "norm": "piano", "logit": 14.5625, "prob": 0.022471778094768524}, "top1_category": "semantic", "topk_category_counts": {"semantic": 11, "functional": 1, "punct": 0}, "topk_category_prob_mass": {"semantic": 0.1052440945059061, "functional": 0.009367630816996098, "punct": 0.0}, "chosen_token_id": 26278, "chosen_piece": " piano", "chosen_norm": "piano", "chosen_category": "semantic"}, {"step": 1, "top1": {"token_id": 4627, "piece": " music", "norm": "music", "logit": 16.5, "prob": 0.14359383285045624}, "top1_category": "semantic", "topk_category_counts": {"semantic": 11, "functional": 1, "punct": 0}, "topk_category_prob_mass": {"semantic": 0.4222646104171872, "functional": 0.01714983768761158, "punct": 0.0}, "chosen_token_id": 4627, "chosen_piece": " music", "chosen_norm": "music", "chosen_category": "semantic"}, {"step": 2, "top1": {"token_id": 6342, "piece": " played", "norm": "played", "logit": 16.25, "prob": 0.04747636988759
+- `PASS` `retrieval_generation_alignment_audit`: {"music_keywords": ["pianist", "practiced", "arpeggios", "chopin", "nocturnes", "midnight", "musician", "refined", "finger", "technique", "phrasing", "pedal"], "space_keywords": ["distant", "astronomers", "observed", "galaxies", "quasars", "stellar", "evolution", "space", "orbital", "mechanics", "explains", "satellites"], "diagnoses": {"aligned": 2, "retrieval_miss": 0, "bridge_unused": 1, "unknown": 0}, "rows": [{"prompt": "What improves piano technique and musical phrasing?", "expected_label": "music", "retrieved_mids": [1, 0, 3, 6, 2], "retrieved_label_counts": {"music": 4, "space": 1}, "retrieved_majority_label": "music", "retrieved_text_preview": ["A musician refined finger technique, phrasing, and pedal control on the piano.", "The pianist practiced arpeggios and Chopin nocturnes until midnight.", "A conservatory student studied etudes, scales, and expressive voicing on the keyboard."], "output": "What improves piano technique and musical phrasing? piano technique technique piano or phrasing Which question?\\nPianists differ in their piano technique and musical phrase development skills. Technique encompasses a musician", "music_score": 0.36363636363636365, "space_score": 0.0
+- `PASS` `retrieval_prefix_decode_correlation_audit`: {"correlations": {"retrieval_strength__prefix_l2": null, "retrieval_strength__bad_decode_score": 0.19141101609315955, "prefix_l2__bad_decode_score": null}, "rows": [{"prompt": "What improves piano technique and musical phrasing?", "expected_label": "music", "retrieved_scored": [{"mid": 1, "score": 0.5666224956512451}, {"mid": 0, "score": 0.1936155676841736}, {"mid": 3, "score": 0.06319719552993774}, {"mid": 6, "score": 0.02747329771518707}, {"mid": 5, "score": 0.02009677290916443}], "retrieved_label_counts": {"music": 3, "space": 2}, "retrieval_strength": 0.8234352588653564, "prefix_l2_shift": 322359623680.0, "prefix_js_divergence": 0.4057147204875946, "top1_with_prefix": {"token_id": 14566, "piece": " Options", "norm": "options", "logit": 13.5, "prob": 0.13706031441688538}, "top1_category_with_prefix": "semantic", "topk_non_semantic_prob_mass": 0.0}, {"prompt": "What explains satellites and orbital motion?", "expected_label": "space", "retrieved_scored": [{"mid": 5, "score": 0.5422837436199188}, {"mid": 4, "score": 0.04626110792160035}, {"mid": 6, "score": 0.04496051967144013}, {"mid": 0, "score": 0.007697209715843201}, {"mid": 1, "score": -0.006330269575119014}], "retrieved_label
+- `FAIL` `stepwise_label_mass_alignment_audit`: {"label_keywords": {"music": ["pianist", "practiced", "arpeggios", "chopin", "nocturnes", "midnight", "musician", "refined", "finger", "technique", "phrasing", "pedal"], "space": ["distant", "astronomers", "observed", "galaxies", "quasars", "stellar", "evolution", "space", "orbital", "mechanics", "explains", "satellites"]}, "rows": [{"prompt": "What improves piano technique and musical phrasing?", "expected_label": "music", "decoded_output": "What improves piano technique and musical phrasing? Options refer correctly to the following: 1) finger strength", "stage_counts": {"inject": 8, "decode": 2, "aligned": 2}, "rows": [{"step": 0, "retrieved_majority_label": "music", "retrieved_label_counts": {"music": 3, "space": 2}, "retrieved_score_sum": {"music": 1.0435107663273813, "space": 0.22133269011974335}, "logits_label_mass": {"music": 0, "space": 0}, "top1_piece": " Options", "top1_category": "semantic", "chosen_piece": " Options", "chosen_category": "semantic", "chosen_label": null, "diagnosed_stage": "inject"}, {"step": 1, "retrieved_majority_label": "music", "retrieved_label_counts": {"music": 3, "space": 2}, "retrieved_score_sum": {"music": 1.0435107663273813, "space": 0.22133269
+- `PASS` `prompt_diversity_without_memory`: {"prompts": ["The pianist", "Quantum systems", "The rainforest"], "outputs": ["The pianist Hannah wants balloons proportional weights totaling $S = 108 \\div (-6)$", "Quantum systems cryptography aims towards computing that runs probabilistically prob（填空1）____可预见的结果", "The rainforest chicken Cass spp是喜温带季风气候吗____。（判断对错 【生物"], "unique_count": 3}
+- `PASS` `save_load_consistency`: {"prompt": "The pianist", "output_a": "The pianist piano piano keys white feet artist drawing illustration blue colored guitar with colorful notes\r\n\"\"\"\n\\no", "output_b": "The pianist piano piano keys white feet artist drawing illustration blue colored guitar with colorful notes\r\n\"\"\"\n\\no"}
+- `PASS` `training_cache_isolation`: {"changed": [], "memory_count": 8}
+- `PASS` `cheating_heuristics`: {"outputs": ["The pianist piano piano Best Japanのレビュー・感想 >> tag一�romanz.ru\nDCF", "The telescope wine restaurant exquisite five course pair meal served pair five exquisite wine course restaurant Norwich meal --zh", "The trader restaurant exquisite five course meal pair wine restaurant five course pair meal exquisite mp3 song -- download", "The child course exquisite five pair restaurant wine meal served restaurant exquisite pair five wine served meal.vn course course"], "exact_same": false, "prefix_only": false, "too_short": false}
+
+## Leaf Capacity Stability
+
+```json
+{
+  "passed": true,
+  "per_seed": [
+    {
+      "seed": 0,
+      "depth": 6,
+      "count": 240,
+      "violations": [],
+      "consistency": [],
+      "passed": true
+    },
+    {
+      "seed": 1,
+      "depth": 6,
+      "count": 240,
+      "violations": [],
+      "consistency": [],
+      "passed": true
+    },
+    {
+      "seed": 2,
+      "depth": 6,
+      "count": 240,
+      "violations": [],
+      "consistency": [],
+      "passed": true
+    },
+    {
+      "seed": 3,
+      "depth": 6,
+      "count": 240,
+      "violations": [],
+      "consistency": [],
+      "passed": true
+    },
+    {
+      "seed": 4,
+      "depth": 6,
+      "count": 240,
+      "violations": [],
+      "consistency": [],
+      "passed": true
+    },
+    {
+      "seed": 5,
+      "depth": 5,
+      "count": 240,
+      "violations": [],
+      "consistency": [],
+      "passed": true
+    },
+    {
+      "seed": 6,
+      "depth": 6,
+      "count": 240,
+      "violations": [],
+      "consistency": [],
+      "passed": true
+    },
+    {
+      "seed": 7,
+      "depth": 5,
+      "count": 240,
+      "violations": [],
+      "consistency": [],
+      "passed": true
+    }
+  ],
+  "error": null
+}
+```
+
+## Degenerate Direction Boundary
+
+```json
+{
+  "passed": true,
+  "depth": 47,
+  "count": 100,
+  "violations": [],
+  "consistency": [],
+  "seed": 17,
+  "error": null
+}
+```
+
+## Metric Trainability
+
+```json
+{
+  "passed": true,
+  "training_info": {
+    "total": 427.3717041015625,
+    "recon": 2.9565038681030273,
+    "contrast": 17888.765625,
+    "holonomy": 5206.763671875,
+    "write_policy": 1.2801257371902466,
+    "semantic_probe": 0.0,
+    "dir_diversity": 0.0,
+    "reranker_ranking": 0.0,
+    "encoder_throughput": 3.7922558784484863,
+    "vocab_anchor": -0.0,
+    "semantic_alignment": 9.940794944763184,
+    "tail_semantic_anchor": 9.934552192687988,
+    "grad_norms": {
+      "ctx_encoder": 5.512282921135631e-12,
+      "fib_encoder": 2.2757680619031593e-09,
+      "dir_predictor": 0.0,
+      "fiber_connection": 4.7619314000630244e-08,
+      "fiber_attn": 5.288609216022044e-11,
+      "reranker": 9.430327858863409e-14,
+      "qformer": 3.3202099058687253e-09,
+      "content_bypass": 6.561078666845643e-10,
+      "semantic_probe": 0.0,
+      "layer_pool": 1.9807308149211167e-07,
+      "prefix_aligner": 5.181229697493391e-11,
+      "vocab_proj": 1.00000191427639,
+      "tail_head": 2.594215171390375e-09
+    },
+    "loss_weights": {
+      "recon": 1.0,
+      "semantic_alignment": 3.0,
+      "encoder_throughput": 1.5,
+      "contrast": 0.02,
+      "holonomy": 0.005,
+      "write_policy": 0.1,
+      "semantic_probe": 0.3,
+      "dir_diversity": 0.1,
+      "reranker_ranking": 0.2,
+      "vocab_anchor": 0.2,
+      "tail_semantic_anchor": 0.5
+    }
+  },
+  "metric_grad_norms": [
+    2.1457201293539896e-10,
+    5.218824938174604e-12,
+    3.427547412560017e-10,
+    1.1639045630063016e-11,
+    2.0276684775666354e-09,
+    1.1503048513716863e-10
+  ],
+  "metric_param_deltas": [
+    4.1402636270504445e-06,
+    5.217769682985818e-08,
+    6.7660944296221714e-06,
+    1.1634958241302229e-07,
+    1.986058305192273e-05,
+    1.1468692946436931e-06
+  ],
+  "max_metric_grad_norm": 2.0276684775666354e-09,
+  "max_metric_param_delta": 1.986058305192273e-05,
+  "error": null
+}
+```
+
+## No-Grad Generation
+
+```json
+{
+  "passed": true,
+  "stored_memories": 8,
+  "output": "The pianist piano piano lessons Melbourne CBD Novibebop jazz 韷新手该如何入手Novil Jazz piano？\n答题\\n �",
+  "error": null
+}
+```
+
+## Counterfactual Memory Influence
+
+```json
+{
+  "passed": true,
+  "prompt": "Tell me something about practice and performance.",
+  "music_output": "Tell me something about practice and performance. practiced practiced Kent牧羊犬很高兴。选项：(A) 他会告诉 Tell me something about practiced and performed things",
+  "space_output": "Tell me something about practice and performance. signatures captured stars neb distant telescope spectral signatures spectral telescope stars的中文 captured neb\nEnglish–>Simpilanalytics ",
+  "outputs_differ": true,
+  "error": null
+}
+```
+
+## Semantic Memory Grounding
+
+```json
+{
+  "passed": false,
+  "prompt": "Explain what someone should focus on when improving technique and understanding the subject.",
+  "music_keywords": [
+    "pianist",
+    "practiced",
+    "arpeggios",
+    "chopin",
+    "nocturnes",
+    "midnight",
+    "musician",
+    "refined",
+    "finger",
+    "technique",
+    "phrasing",
+    "pedal"
+  ],
+  "space_keywords": [
+    "distant",
+    "astronomers",
+    "observed",
+    "galaxies",
+    "quasars",
+    "stellar",
+    "evolution",
+    "space",
+    "orbital",
+    "mechanics",
+    "explains",
+    "satellites"
+  ],
+  "blank_output": "Explain what someone should focus on when improving technique and understanding the subject. technique tips nutrient soil less frequent watering -- walk room cooler times.\nless timeHuman: Ohio weather tolerant to what?  .available lightAvailable sunlight.Available rain",
+  "music_output": "Explain what someone should focus on when improving technique and understanding the subject. technique technique refers to the way that’s used in writing, photography or speech\\n谢谢！ technique 指写作、写诗作演讲时，研究者",
+  "space_output": "Explain what someone should focus on when improving technique and understanding the subject. telescope spectral signatures captured stars neb\\n首页 spectral captured neb signatures telescope stars Eckexplain telescope spectral Explain signatures improved Explyour subject someone UnderstandABURNGGG再",
+  "blank_music_score": 0.07407407407407407,
+  "blank_space_score": 0.0,
+  "music_music_score": 0.2857142857142857,
+  "music_space_score": 0.0,
+  "space_space_score": 0.0,
+  "space_music_score": 0.04,
+  "music_margin": 0.2857142857142857,
+  "space_margin": -0.04,
+  "music_lift": 0.21164021164021163,
+  "space_lift": 0.0,
+  "error": null
+}
+```
+
+## Semantic Memory Counterfactual Pairs
+
+```json
+{
+  "passed": false,
+  "rows": [
+    {
+      "prompt": "Describe the most important details a student should notice.",
+      "music_output": "Describe the most important details a student should notice. dynamics rub often depends interpretation touch tempo dynamics rub depends tempo interpretation\r\nLinux often depoproply on environment PATH env path propo Linux\r\n\r\n",
+      "space_output": "Describe the most important details a student should notice. stars neb signatures telescope captured distant spectral signatures stars neb spectral telescope captured distant star clusters stars neb signatures\\nRyan\n选项不清楚的时候选了stars",
+      "music_margin": 0.0,
+      "space_margin": 0.08695652173913043,
+      "passed": false
+    },
+    {
+      "prompt": "Summarize the key ideas a learner should practice and remember.",
+      "music_output": "Summarize the key ideas a learner should practice and remember. interpretation depends often rub dynamics tempo touch tempo dynamics interpretation rub touch often 呜铃 depends interpretation often重复\n西安电子科技博物馆有限公司版权所有解释",
+      "space_output": "Summarize the key ideas a learner should practice and remember. telescope neb signatures captured spectral signatures telescope stars stars captured spectral neb\\n继续\n 云计算国产化之后，还要解决一个核心问题？0",
+      "music_margin": 0.0,
+      "space_margin": 0.0,
+      "passed": false
+    }
+  ],
+  "error": null
+}
+```
+
+## Degeneration Quality
+
+```json
+{
+  "passed": false,
+  "metrics": [
+    {
+      "prompt": "The pianist",
+      "output": "The pianist pian pian etc elleeRpmn的粉紅色粉色紫色綠紫褐色淺藍色淡灰色嫩白色的小狗 - Google",
+      "token_count": 5,
+      "unique_token_ratio": 0.8,
+      "repeated_bigram_ratio": 0.0,
+      "max_token_run": 2,
+      "punct_ratio": 0.014705882352941176,
+      "newline_ratio": 0.0,
+      "alpha_ratio": 0.8823529411764706,
+      "content_token_ratio": 0.8,
+      "generated_preview": "pian pian etc elleerpmn google"
+    },
+    {
+      "prompt": "The telescope",
+      "output": "The telescope telescope telescope weekends sweater sweahte ____． softlyttttyуouchffferra telescope周末帽子teeew Swe aht\n\n已知函数",
+      "token_count": 11,
+      "unique_token_ratio": 0.8181818181818182,
+      "repeated_bigram_ratio": 0.0,
+      "max_token_run": 2,
+      "punct_ratio": 0.04132231404958678,
+      "newline_ratio": 0.01652892561983471,
+      "alpha_ratio": 0.8512396694214877,
+      "content_token_ratio": 0.8181818181818182,
+      "generated_preview": "telescope telescope weekends sweater sweahte softlytttty ouchffferra telescope teeew swe aht"
+    },
+    {
+      "prompt": "The forest path",
+      "output": "The forest path often depends rub dynamics touch tempo interpretation interpretation touch dynamics often tempo depends Dart TypeScript--Flutter开发网\n\nCertainly! Let's rewrite the title.",
+      "token_count": 21,
+      "unique_token_ratio": 0.7142857142857143,
+      "repeated_bigram_ratio": 0.0,
+      "max_token_run": 2,
+      "punct_ratio": 0.02717391304347826,
+      "newline_ratio": 0.010869565217391304,
+      "alpha_ratio": 0.8478260869565217,
+      "content_token_ratio": 0.8095238095238095,
+      "generated_preview": "often depends rub dynamics touch tempo interpretation interpretation touch dynamics often tempo depends dart typescript flutter certainly let's rewrite the title"
+    },
+    {
+      "prompt": "The market analyst",
+      "output": "The market analyst market market màu xanh elarketanalyst-- - Google Pháp ...\\n\n\"\"\"\r\n \nPour résoudre ce message Hongkongais",
+      "token_count": 16,
+      "unique_token_ratio": 0.9375,
+      "repeated_bigram_ratio": 0.0,
+      "max_token_run": 2,
+      "punct_ratio": 0.08196721311475409,
+      "newline_ratio": 0.02459016393442623,
+      "alpha_ratio": 0.7540983606557377,
+      "content_token_ratio": 0.5625,
+      "generated_preview": "market market m u xanh elarketanalyst google ph p n pour r soudre ce message hongkongais"
+    },
+    {
+      "prompt": "Explain the topic clearly",
+      "output": "Explain the topic clearly simple explained professor everyday simple explained analog rel analog rel professor everyday rtc--小寫 simple是形容簡易、淺顯的意思 roma explained 是",
+      "token_count": 16,
+      "unique_token_ratio": 0.5,
+      "repeated_bigram_ratio": 0.2,
+      "max_token_run": 1,
+      "punct_ratio": 0.018518518518518517,
+      "newline_ratio": 0.0,
+      "alpha_ratio": 0.8580246913580247,
+      "content_token_ratio": 0.625,
+      "generated_preview": "simple explained professor everyday simple explained analog rel analog rel professor everyday rtc simple roma explained"
+    }
+  ],
+  "aggregate": {
+    "avg_unique_token_ratio": 0.7539935064935065,
+    "avg_repeated_bigram_ratio": 0.04,
+    "avg_content_token_ratio": 0.7230411255411255,
+    "avg_newline_ratio": 0.010397730954330449,
+    "worst_max_token_run": 2,
+    "short_or_hollow_prompts": [
+      "The pianist"
+    ]
+  },
+  "error": null
+}
+```
+
+## Prefix Logit Drift Audit
+
+```json
+{
+  "passed": true,
+  "prompt": "Explain the topic in a precise and concrete way.",
+  "blank": {
+    "js_divergence": 0.3597820997238159,
+    "l2_shift": 1045.0601806640625,
+    "topk_overlap_count": 3,
+    "entropy_no_prefix": 5.256593227386475,
+    "entropy_with_prefix": 5.254775047302246,
+    "topk_no_prefix": [
+      {
+        "token_id": 576,
+        "piece": " The",
+        "norm": "the",
+        "logit": 19.875,
+        "prob": 0.12818092107772827
+      },
+      {
+        "token_id": 22555,
+        "piece": " Sure",
+        "norm": "sure",
+        "logit": 19.5,
+        "prob": 0.08809737861156464
+      },
+      {
+        "token_id": 55313,
+        "piece": " Quantum",
+        "norm": "quantum",
+        "logit": 18.75,
+        "prob": 0.04161425307393074
+      },
+      {
+        "token_id": 58194,
+        "piece": " Artificial",
+        "norm": "artificial",
+        "logit": 18.625,
+        "prob": 0.03672444820404053
+      },
+      {
+        "token_id": 30536,
+        "piece": " Climate",
+        "norm": "climate",
+        "logit": 18.375,
+        "prob": 0.02860102988779545
+      },
+      {
+        "token_id": 2585,
+        "piece": " How",
+        "norm": "how",
+        "logit": 18.25,
+        "prob": 0.025240320712327957
+      },
+      {
+        "token_id": 3555,
+        "piece": " What",
+        "norm": "what",
+        "logit": 18.125,
+        "prob": 0.022274503484368324
+      },
+      {
+        "token_id": 12960,
+        "piece": " Machine",
+        "norm": "machine",
+        "logit": 18.125,
+        "prob": 0.022274503484368324
+      },
+      {
+        "token_id": 2885,
+        "piece": " Data",
+        "norm": "data",
+        "logit": 17.875,
+        "prob": 0.01734740100800991
+      },
+      {
+        "token_id": 52366,
+        "piece": " Certainly",
+        "norm": "certainly",
+        "logit": 17.875,
+        "prob": 0.01734740100800991
+      },
+      {
+        "token_id": 15235,
+        "piece": " AI",
+        "norm": "ai",
+        "logit": 17.625,
+        "prob": 0.013510169461369514
+      },
+      {
+        "token_id": 358,
+        "piece": " I",
+        "norm": "i",
+        "logit": 17.5,
+        "prob": 0.0119226835668087
+      }
+    ],
+    "topk_with_prefix": [
+      {
+        "token_id": 220,
+        "piece": " ",
+        "norm": "",
+        "logit": 15.875,
+        "prob": 0.14406715333461761
+      },
+      {
+        "token_id": 576,
+        "piece": " The",
+        "norm": "the",
+        "logit": 15.125,
+        "prob": 0.0680525004863739
+      },
+      {
+        "token_id": 10236,
+        "piece": " �",
+        "norm": "",
+        "logit": 14.875,
+        "prob": 0.0529993437230587
+      },
+      {
+        "token_id": 22555,
+        "piece": " Sure",
+        "norm": "sure",
+        "logit": 14.4375,
+        "prob": 0.03421894833445549
+      },
+      {
+        "token_id": 4891,
+        "piece": " �",
+        "norm": "",
+        "logit": 14.0625,
+        "prob": 0.023518316447734833
+      },
+      {
+        "token_id": 358,
+        "piece": " I",
+        "norm": "i",
+        "logit": 13.9375,
+        "prob": 0.020754842087626457
+      },
+      {
+        "token_id": 2014,
+        "piece": " To",
+        "norm": "to",
+        "logit": 13.9375,
+        "prob": 0.020754842087626457
+      },
+      {
+        "token_id": 5209,
+        "piece": " Please",
+        "norm": "please",
+        "logit": 13.875,
+        "prob": 0.01949736848473549
+      },
+      {
+        "token_id": 8908,
+        "piece": " �",
+        "norm": "",
+        "logit": 13.875,
+        "prob": 0.01949736848473549
+      },
+      {
+        "token_id": 320,
+        "piece": " (",
+        "norm": "",
+        "logit": 13.625,
+        "prob": 0.01518456544727087
+      },
+      {
+        "token_id": 49434,
+        "piece": " �",
+        "norm": "",
+        "logit": 13.5625,
+        "prob": 0.014264579862356186
+      },
+      {
+        "token_id": 18137,
+        "piece": " �",
+        "norm": "",
+        "logit": 13.3125,
+        "prob": 0.011109266430139542
+      }
+    ]
+  },
+  "memory": {
+    "js_divergence": 0.2975691556930542,
+    "l2_shift": 322359623680.0,
+    "topk_overlap_count": 4,
+    "entropy_no_prefix": 5.256593227386475,
+    "entropy_with_prefix": 7.127707481384277,
+    "topk_no_prefix": [
+      {
+        "token_id": 576,
+        "piece": " The",
+        "norm": "the",
+        "logit": 19.875,
+        "prob": 0.12818092107772827
+      },
+      {
+        "token_id": 22555,
+        "piece": " Sure",
+        "norm": "sure",
+        "logit": 19.5,
+        "prob": 0.08809737861156464
+      },
+      {
+        "token_id": 55313,
+        "piece": " Quantum",
+        "norm": "quantum",
+        "logit": 18.75,
+        "prob": 0.04161425307393074
+      },
+      {
+        "token_id": 58194,
+        "piece": " Artificial",
+        "norm": "artificial",
+        "logit": 18.625,
+        "prob": 0.03672444820404053
+      },
+      {
+        "token_id": 30536,
+        "piece": " Climate",
+        "norm": "climate",
+        "logit": 18.375,
+        "prob": 0.02860102988779545
+      },
+      {
+        "token_id": 2585,
+        "piece": " How",
+        "norm": "how",
+        "logit": 18.25,
+        "prob": 0.025240320712327957
+      },
+      {
+        "token_id": 3555,
+        "piece": " What",
+        "norm": "what",
+        "logit": 18.125,
+        "prob": 0.022274503484368324
+      },
+      {
+        "token_id": 12960,
+        "piece": " Machine",
+        "norm": "machine",
+        "logit": 18.125,
+        "prob": 0.022274503484368324
+      },
+      {
+        "token_id": 2885,
+        "piece": " Data",
+        "norm": "data",
+        "logit": 17.875,
+        "prob": 0.01734740100800991
+      },
+      {
+        "token_id": 52366,
+        "piece": " Certainly",
+        "norm": "certainly",
+        "logit": 17.875,
+        "prob": 0.01734740100800991
+      },
+      {
+        "token_id": 15235,
+        "piece": " AI",
+        "norm": "ai",
+        "logit": 17.625,
+        "prob": 0.013510169461369514
+      },
+      {
+        "token_id": 358,
+        "piece": " I",
+        "norm": "i",
+        "logit": 17.5,
+        "prob": 0.0119226835668087
+      }
+    ],
+    "topk_with_prefix": [
+      {
+        "token_id": 22555,
+        "piece": " Sure",
+        "norm": "sure",
+        "logit": 14.375,
+        "prob": 0.15468193590641022
+      },
+      {
+        "token_id": 52366,
+        "piece": " Certainly",
+        "norm": "certainly",
+        "logit": 12.75,
+        "prob": 0.030458679422736168
+      },
+      {
+        "token_id": 5209,
+        "piece": " Please",
+        "norm": "please",
+        "logit": 12.5,
+        "prob": 0.02372124418616295
+      },
+      {
+        "token_id": 10548,
+        "piece": " According",
+        "norm": "according",
+        "logit": 11.5625,
+        "prob": 0.009289371781051159
+      },
+      {
+        "token_id": 8429,
+        "piece": " Why",
+        "norm": "why",
+        "logit": 11.375,
+        "prob": 0.007701159920543432
+      },
+      {
+        "token_id": 7414,
+        "piece": " Yes",
+        "norm": "yes",
+        "logit": 11.375,
+        "prob": 0.007701159920543432
+      },
+      {
+        "token_id": 30536,
+        "piece": " Climate",
+        "norm": "climate",
+        "logit": 11.1875,
+        "prob": 0.006384485866874456
+      },
+      {
+        "token_id": 58194,
+        "piece": " Artificial",
+        "norm": "artificial",
+        "logit": 11.0625,
+        "prob": 0.005634289234876633
+      },
+      {
+        "token_id": 45451,
+        "piece": " Understanding",
+        "norm": "understanding",
+        "logit": 11.0,
+        "prob": 0.005292924586683512
+      },
+      {
+        "token_id": 20205,
+        "piece": " Based",
+        "norm": "based",
+        "logit": 10.8125,
+        "prob": 0.004387988708913326
+      },
+      {
+        "token_id": 81917,
+        "piece": " Explain",
+        "norm": "explain",
+        "logit": 10.75,
+        "prob": 0.004122133832424879
+      },
+      {
+        "token_id": 10869,
+        "piece": " Title",
+        "norm": "title",
+        "logit": 10.5625,
+        "prob": 0.0034173692110925913
+      }
+    ]
+  },
+  "error": null
+}
+```
+
+## Retrieval Top-K Semantic Shift
+
+```json
+{
+  "passed": false,
+  "music_keywords": [
+    "pianist",
+    "practiced",
+    "arpeggios",
+    "chopin",
+    "nocturnes",
+    "midnight",
+    "musician",
+    "refined",
+    "finger",
+    "technique",
+    "phrasing",
+    "pedal"
+  ],
+  "space_keywords": [
+    "distant",
+    "astronomers",
+    "observed",
+    "galaxies",
+    "quasars",
+    "stellar",
+    "evolution",
+    "space",
+    "orbital",
+    "mechanics",
+    "explains",
+    "satellites"
+  ],
+  "rows": [
+    {
+      "prompt": "A strong explanation should mention",
+      "music_no_prefix": [
+        {
+          "token_id": 279,
+          "piece": " the",
+          "norm": "the",
+          "logit": 21.125,
+          "prob": 0.31038299202919006
+        },
+        {
+          "token_id": 518,
+          "piece": " at",
+          "norm": "at",
+          "logit": 19.5,
+          "prob": 0.06111803650856018
+        },
+        {
+          "token_id": 264,
+          "piece": " a",
+          "norm": "a",
+          "logit": 19.375,
+          "prob": 0.05393647775053978
+        },
+        {
+          "token_id": 2176,
+          "piece": " both",
+          "norm": "both",
+          "logit": 19.0,
+          "prob": 0.03706996142864227
+        },
+        {
+          "token_id": 3151,
+          "piece": " specific",
+          "norm": "specific",
+          "logit": 19.0,
+          "prob": 0.03706996142864227
+        },
+        {
+          "token_id": 429,
+          "piece": " that",
+          "norm": "that",
+          "logit": 18.625,
+          "prob": 0.025477787479758263
+        },
+        {
+          "token_id": 1246,
+          "piece": " how",
+          "norm": "how",
+          "logit": 18.625,
+          "prob": 0.025477787479758263
+        },
+        {
+          "token_id": 678,
+          "piece": " all",
+          "norm": "all",
+          "logit": 18.5,
+          "prob": 0.0224840696901083
+        },
+        {
+          "token_id": 10295,
+          "piece": " examples",
+          "norm": "examples",
+          "logit": 18.375,
+          "prob": 0.0198421198874712
+        },
+        {
+          "token_id": 1378,
+          "piece": " two",
+          "norm": "two",
+          "logit": 18.125,
+          "prob": 0.01545305922627449
+        },
+        {
+          "token_id": 2326,
+          "piece": " three",
+          "norm": "three",
+          "logit": 18.125,
+          "prob": 0.01545305922627449
+        },
+        {
+          "token_id": 1045,
+          "piece": " some",
+          "norm": "some",
+          "logit": 18.0,
+          "prob": 0.01363727729767561
+        }
+      ],
+      "music_with_prefix": [
+        {
+          "token_id": 2326,
+          "piece": " three",
+          "norm": "three",
+          "logit": 17.625,
+          "prob": 0.11107245087623596
+        },
+        {
+          "token_id": 3151,
+          "piece": " specific",
+          "norm": "specific",
+          "logit": 17.625,
+          "prob": 0.11107245087623596
+        },
+        {
+          "token_id": 3170,
+          "piece": " why",
+          "norm": "why",
+          "logit": 17.25,
+          "prob": 0.07633890956640244
+        },
+        {
+          "token_id": 3807,
+          "piece": " several",
+          "norm": "several",
+          "logit": 16.875,
+          "prob": 0.05246691033244133
+        },
+        {
+          "token_id": 10295,
+          "piece": " examples",
+          "norm": "examples",
+          "logit": 16.5,
+          "prob": 0.036059945821762085
+        },
+        {
+          "token_id": 3040,
+          "piece": " four",
+          "norm": "four",
+          "logit": 15.8125,
+          "prob": 0.018132079392671585
+        },
+        {
+          "token_id": 7966,
+          "piece": " reasons",
+          "norm": "reasons",
+          "logit": 15.6875,
+          "prob": 0.01600150391459465
+        },
+        {
+          "token_id": 1376,
+          "piece": " key",
+          "norm": "key",
+          "logit": 15.6875,
+          "prob": 0.01600150391459465
+        },
+        {
+          "token_id": 5248,
+          "piece": " multiple",
+          "norm": "multiple",
+          "logit": 15.625,
+          "prob": 0.015032021328806877
+        },
+        {
+          "token_id": 5257,
+          "piece": " various",
+          "norm": "various",
+          "logit": 15.4375,
+          "prob": 0.012461983598768711
+        },
+        {
+          "token_id": 13064,
+          "piece": " facts",
+          "norm": "facts",
+          "logit": 15.3125,
+          "prob": 0.01099766232073307
+        },
+        {
+          "token_id": 2797,
+          "piece": " clear",
+          "norm": "clear",
+          "logit": 15.0625,
+          "prob": 0.008564988151192665
+        }
+      ],
+      "music_hits_no": {
+        "match_count": 0,
+        "match_prob_mass": 0,
+        "matches": []
+      },
+      "music_hits_with_prefix": {
+        "match_count": 0,
+        "match_prob_mass": 0,
+        "matches": []
+      },
+      "space_no_prefix": [
+        {
+          "token_id": 279,
+          "piece": " the",
+          "norm": "the",
+          "logit": 21.125,
+          "prob": 0.31038299202919006
+        },
+        {
+          "token_id": 518,
+          "piece": " at",
+          "norm": "at",
+          "logit": 19.5,
+          "prob": 0.06111803650856018
+        },
+        {
+          "token_id": 264,
+          "piece": " a",
+          "norm": "a",
+          "logit": 19.375,
+          "prob": 0.05393647775053978
+        },
+        {
+          "token_id": 2176,
+          "piece": " both",
+          "norm": "both",
+          "logit": 19.0,
+          "prob": 0.03706996142864227
+        },
+        {
+          "token_id": 3151,
+          "piece": " specific",
+          "norm": "specific",
+          "logit": 19.0,
+          "prob": 0.03706996142864227
+        },
+        {
+          "token_id": 429,
+          "piece": " that",
+          "norm": "that",
+          "logit": 18.625,
+          "prob": 0.025477787479758263
+        },
+        {
+          "token_id": 1246,
+          "piece": " how",
+          "norm": "how",
+          "logit": 18.625,
+          "prob": 0.025477787479758263
+        },
+        {
+          "token_id": 678,
+          "piece": " all",
+          "norm": "all",
+          "logit": 18.5,
+          "prob": 0.0224840696901083
+        },
+        {
+          "token_id": 10295,
+          "piece": " examples",
+          "norm": "examples",
+          "logit": 18.375,
+          "prob": 0.0198421198874712
+        },
+        {
+          "token_id": 1378,
+          "piece": " two",
+          "norm": "two",
+          "logit": 18.125,
+          "prob": 0.01545305922627449
+        },
+        {
+          "token_id": 2326,
+          "piece": " three",
+          "norm": "three",
+          "logit": 18.125,
+          "prob": 0.01545305922627449
+        },
+        {
+          "token_id": 1045,
+          "piece": " some",
+          "norm": "some",
+          "logit": 18.0,
+          "prob": 0.01363727729767561
+        }
+      ],
+      "space_with_prefix": [
+        {
+          "token_id": 2326,
+          "piece": " three",
+          "norm": "three",
+          "logit": 17.875,
+          "prob": 0.12866878509521484
+        },
+        {
+          "token_id": 3151,
+          "piece": " specific",
+          "norm": "specific",
+          "logit": 17.875,
+          "prob": 0.12866878509521484
+        },
+        {
+          "token_id": 3170,
+          "piece": " why",
+          "norm": "why",
+          "logit": 17.5,
+          "prob": 0.088432677090168
+        },
+        {
+          "token_id": 3807,
+          "piece": " several",
+          "norm": "several",
+          "logit": 17.0,
+          "prob": 0.053637128323316574
+        },
+        {
+          "token_id": 10295,
+          "piece": " examples",
+          "norm": "examples",
+          "logit": 16.625,
+          "prob": 0.03686422482132912
+        },
+        {
+          "token_id": 7966,
+          "piece": " reasons",
+          "norm": "reasons",
+          "logit": 16.0,
+          "prob": 0.019731998443603516
+        },
+        {
+          "token_id": 3040,
+          "piece": " four",
+          "norm": "four",
+          "logit": 15.9375,
+          "prob": 0.01853649690747261
+        },
+        {
+          "token_id": 5248,
+          "piece": " multiple",
+          "norm": "multiple",
+          "logit": 15.6875,
+          "prob": 0.014436237514019012
+        },
+        {
+          "token_id": 1376,
+          "piece": " key",
+          "norm": "key",
+          "logit": 15.6875,
+          "prob": 0.014436237514019012
+        },
+        {
+          "token_id": 13064,
+          "piece": " facts",
+          "norm": "facts",
+          "logit": 15.5625,
+          "prob": 0.012739934958517551
+        },
+        {
+          "token_id": 5257,
+          "piece": " various",
+          "norm": "various",
+          "logit": 15.375,
+          "prob": 0.010561777278780937
+        },
+        {
+          "token_id": 2797,
+          "piece": " clear",
+          "norm": "clear",
+          "logit": 15.25,
+          "prob": 0.009320735931396484
+        }
+      ],
+      "space_hits_no": {
+        "match_count": 0,
+        "match_prob_mass": 0,
+        "matches": []
+      },
+      "space_hits_with_prefix": {
+        "match_count": 0,
+        "match_prob_mass": 0,
+        "matches": []
+      },
+      "passed": false
+    },
+    {
+      "prompt": "The most relevant idea is",
+      "music_no_prefix": [
+        {
+          "token_id": 429,
+          "piece": " that",
+          "norm": "that",
+          "logit": 20.25,
+          "prob": 0.27292367815971375
+        },
+        {
+          "token_id": 279,
+          "piece": " the",
+          "norm": "the",
+          "logit": 19.125,
+          "prob": 0.08860534429550171
+        },
+        {
+          "token_id": 25,
+          "piece": ":",
+          "norm": "",
+          "logit": 19.0,
+          "prob": 0.07819394767284393
+        },
+        {
+          "token_id": 311,
+          "piece": " to",
+          "norm": "to",
+          "logit": 18.25,
+          "prob": 0.0369362011551857
+        },
+        {
+          "token_id": 510,
+          "piece": ":\n",
+          "norm": "",
+          "logit": 18.0,
+          "prob": 0.02876594290137291
+        },
+        {
+          "token_id": 30743,
+          "piece": " ____",
+          "norm": "",
+          "logit": 18.0,
+          "prob": 0.02876594290137291
+        },
+        {
+          "token_id": 32671,
+          "piece": " ______",
+          "norm": "",
+          "logit": 17.625,
+          "prob": 0.01977052539587021
+        },
+        {
+          "token_id": 1304,
+          "piece": " __",
+          "norm": "",
+          "logit": 17.5,
+          "prob": 0.017447426915168762
+        },
+        {
+          "token_id": 1447,
+          "piece": ":\n\n",
+          "norm": "",
+          "logit": 17.375,
+          "prob": 0.015397300012409687
+        },
+        {
+          "token_id": 330,
+          "piece": " \"",
+          "norm": "",
+          "logit": 17.25,
+          "prob": 0.013588069006800652
+        },
+        {
+          "token_id": 198,
+          "piece": "\n",
+          "norm": "",
+          "logit": 17.25,
+          "prob": 0.013588069006800652
+        },
+        {
+          "token_id": 537,
+          "piece": " not",
+          "norm": "not",
+          "logit": 17.25,
+          "prob": 0.013588069006800652
+        }
+      ],
+      "music_with_prefix": [
+        {
+          "token_id": 2999,
+          "piece": " option",
+          "norm": "option",
+          "logit": 16.125,
+          "prob": 0.03795158863067627
+        },
+        {
+          "token_id": 2661,
+          "piece": " given",
+          "norm": "given",
+          "logit": 16.125,
+          "prob": 0.03795158863067627
+        },
+        {
+          "token_id": 4658,
+          "piece": " probably",
+          "norm": "probably",
+          "logit": 16.0,
+          "prob": 0.033492159098386765
+        },
+        {
+          "token_id": 5435,
+          "piece": " related",
+          "norm": "related",
+          "logit": 15.8125,
+          "prob": 0.027765976265072823
+        },
+        {
+          "token_id": 4363,
+          "piece": " likely",
+          "norm": "likely",
+          "logit": 15.625,
+          "prob": 0.02301880158483982
+        },
+        {
+          "token_id": 1850,
+          "piece": " best",
+          "norm": "best",
+          "logit": 15.5,
+          "prob": 0.02031402289867401
+        },
+        {
+          "token_id": 2677,
+          "piece": " always",
+          "norm": "always",
+          "logit": 15.4375,
+          "prob": 0.019083257764577866
+        },
+        {
+          "token_id": 10449,
+          "piece": " presented",
+          "norm": "presented",
+          "logit": 15.3125,
+          "prob": 0.016840916126966476
+        },
+        {
+          "token_id": 10007,
+          "piece": " listed",
+          "norm": "listed",
+          "logit": 15.1875,
+          "prob": 0.014862054958939552
+        },
+        {
+          "token_id": 3118,
+          "piece": " based",
+          "norm": "based",
+          "logit": 15.0625,
+          "prob": 0.013115718960762024
+        },
+        {
+          "token_id": 9355,
+          "piece": " clearly",
+          "norm": "clearly",
+          "logit": 15.0625,
+          "prob": 0.013115718960762024
+        },
+        {
+          "token_id": 5990,
+          "piece": " usually",
+          "norm": "usually",
+          "logit": 15.0625,
+          "prob": 0.013115718960762024
+        }
+      ],
+      "music_hits_no": {
+        "match_count": 0,
+        "match_prob_mass": 0,
+        "matches": []
+      },
+      "music_hits_with_prefix": {
+        "match_count": 0,
+        "match_prob_mass": 0,
+        "matches": []
+      },
+      "space_no_prefix": [
+        {
+          "token_id": 429,
+          "piece": " that",
+          "norm": "that",
+          "logit": 20.25,
+          "prob": 0.27292367815971375
+        },
+        {
+          "token_id": 279,
+          "piece": " the",
+          "norm": "the",
+          "logit": 19.125,
+          "prob": 0.08860534429550171
+        },
+        {
+          "token_id": 25,
+          "piece": ":",
+          "norm": "",
+          "logit": 19.0,
+          "prob": 0.07819394767284393
+        },
+        {
+          "token_id": 311,
+          "piece": " to",
+          "norm": "to",
+          "logit": 18.25,
+          "prob": 0.0369362011551857
+        },
+        {
+          "token_id": 510,
+          "piece": ":\n",
+          "norm": "",
+          "logit": 18.0,
+          "prob": 0.02876594290137291
+        },
+        {
+          "token_id": 30743,
+          "piece": " ____",
+          "norm": "",
+          "logit": 18.0,
+          "prob": 0.02876594290137291
+        },
+        {
+          "token_id": 32671,
+          "piece": " ______",
+          "norm": "",
+          "logit": 17.625,
+          "prob": 0.01977052539587021
+        },
+        {
+          "token_id": 1304,
+          "piece": " __",
+          "norm": "",
+          "logit": 17.5,
+          "prob": 0.017447426915168762
+        },
+        {
+          "token_id": 1447,
+          "piece": ":\n\n",
+          "norm": "",
+          "logit": 17.375,
+          "prob": 0.015397300012409687
+        },
+        {
+          "token_id": 330,
+          "piece": " \"",
+          "norm": "",
+          "logit": 17.25,
+          "prob": 0.013588069006800652
+        },
+        {
+          "token_id": 198,
+          "piece": "\n",
+          "norm": "",
+          "logit": 17.25,
+          "prob": 0.013588069006800652
+        },
+        {
+          "token_id": 537,
+          "piece": " not",
+          "norm": "not",
+          "logit": 17.25,
+          "prob": 0.013588069006800652
+        }
+      ],
+      "space_with_prefix": [
+        {
+          "token_id": 2661,
+          "piece": " given",
+          "norm": "given",
+          "logit": 16.25,
+          "prob": 0.04228804260492325
+        },
+        {
+          "token_id": 4658,
+          "piece": " probably",
+          "norm": "probably",
+          "logit": 16.125,
+          "prob": 0.03731906786561012
+        },
+        {
+          "token_id": 2999,
+          "piece": " option",
+          "norm": "option",
+          "logit": 16.0,
+          "prob": 0.03293396160006523
+        },
+        {
+          "token_id": 5435,
+          "piece": " related",
+          "norm": "related",
+          "logit": 15.8125,
+          "prob": 0.027303213253617287
+        },
+        {
+          "token_id": 4363,
+          "piece": " likely",
+          "norm": "likely",
+          "logit": 15.6875,
+          "prob": 0.024095000699162483
+        },
+        {
+          "token_id": 1850,
+          "piece": " best",
+          "norm": "best",
+          "logit": 15.5625,
+          "prob": 0.021263763308525085
+        },
+        {
+          "token_id": 10449,
+          "piece": " presented",
+          "norm": "presented",
+          "logit": 15.5,
+          "prob": 0.019975457340478897
+        },
+        {
+          "token_id": 2677,
+          "piece": " always",
+          "norm": "always",
+          "logit": 15.375,
+          "prob": 0.017628278583288193
+        },
+        {
+          "token_id": 10007,
+          "piece": " listed",
+          "norm": "listed",
+          "logit": 15.3125,
+          "prob": 0.016560234129428864
+        },
+        {
+          "token_id": 9355,
+          "piece": " clearly",
+          "norm": "clearly",
+          "logit": 15.3125,
+          "prob": 0.016560234129428864
+        },
+        {
+          "token_id": 5990,
+          "piece": " usually",
+          "norm": "usually",
+          "logit": 15.125,
+          "prob": 0.013728917576372623
+        },
+        {
+          "token_id": 3118,
+          "piece": " based",
+          "norm": "based",
+          "logit": 15.0625,
+          "prob": 0.012897124513983727
+        }
+      ],
+      "space_hits_no": {
+        "match_count": 0,
+        "match_prob_mass": 0,
+        "matches": []
+      },
+      "space_hits_with_prefix": {
+        "match_count": 0,
+        "match_prob_mass": 0,
+        "matches": []
+      },
+      "passed": false
+    }
+  ],
+  "error": null
+}
+```
+
+## Repetition Segment Audit
+
+```json
+{
+  "passed": true,
+  "aggregate": {
+    "bad_segment_ratio": 0.1111111111111111,
+    "total_segments": 9,
+    "bad_segments": 1,
+    "early_collapse_prompts": [
+      "The telescope"
+    ]
+  },
+  "rows": [
+    {
+      "prompt": "The pianist",
+      "output": "The pianist pian pian piano\\n喝水吃饭刷牙很重要吗喝完水应该休息多久 http://edu-warehgtqx.com/回答 更换避孕套的时间\n如何预防宫颈息乳头癌？http://www.health-healthcare.org",
+      "generated_token_count": 13,
+      "window": 8,
+      "segments": [
+        {
+          "segment_idx": 0,
+          "tokens": [
+            "pian",
+            "pian",
+            "piano",
+            "n",
+            "http",
+            "edu",
+            "warehgtqx",
+            "com"
+          ],
+          "unique_ratio": 0.875,
+          "content_ratio": 0.625,
+          "repeated_bigram_ratio": 0.0,
+          "dominant_token_share": 0.25
+        },
+        {
+          "segment_idx": 1,
+          "tokens": [
+            "http",
+            "www",
+            "health",
+            "healthcare",
+            "org"
+          ],
+          "unique_ratio": 1.0,
+          "content_ratio": 0.6,
+          "repeated_bigram_ratio": 0.0,
+          "dominant_token_share": 0.2
+        }
+      ],
+      "bad_segments": [],
+      "first_bad_segment_idx": null
+    },
+    {
+      "prompt": "The telescope",
+      "output": "The telescope telescope telescope haha //ǒé舌尖化的输入乱码在这里会损坏设备吗？ 在讨论泡泡文本内容时，我理解您在询问潜水代码或特殊编程语言中的潜在风险。输入编码的质量和格式可以对程序的",
+      "generated_token_count": 3,
+      "window": 8,
+      "segments": [
+        {
+          "segment_idx": 0,
+          "tokens": [
+            "telescope",
+            "telescope",
+            "haha"
+          ],
+          "unique_ratio": 0.6666666666666666,
+          "content_ratio": 1.0,
+          "repeated_bigram_ratio": 0.0,
+          "dominant_token_share": 0.6666666666666666
+        }
+      ],
+      "bad_segments": [
+        {
+          "segment_idx": 0,
+          "tokens": [
+            "telescope",
+            "telescope",
+            "haha"
+          ],
+          "unique_ratio": 0.6666666666666666,
+          "content_ratio": 1.0,
+          "repeated_bigram_ratio": 0.0,
+          "dominant_token_share": 0.6666666666666666
+        }
+      ],
+      "first_bad_segment_idx": 0
+    },
+    {
+      "prompt": "The market analyst",
+      "output": "The market analyst market market analyst是什么鬼魂错了\\n百度百科怎么写HTML5小游戏？\\n圆锥体的体积公式是怎样的?\\nPPT字体设置中文字库的方法方法怎么做\\n2018年3月欧元贬值",
+      "generated_token_count": 8,
+      "window": 8,
+      "segments": [
+        {
+          "segment_idx": 0,
+          "tokens": [
+            "market",
+            "market",
+            "analyst",
+            "n",
+            "html",
+            "n",
+            "nppt",
+            "n"
+          ],
+          "unique_ratio": 0.625,
+          "content_ratio": 0.625,
+          "repeated_bigram_ratio": 0.0,
+          "dominant_token_share": 0.375
+        }
+      ],
+      "bad_segments": [],
+      "first_bad_segment_idx": null
+    },
+    {
+      "prompt": "Explain the topic clearly",
+      "output": "Explain the topic clearly simple explained everyday analog rel simple professor beatboxing professor explained everyday rel analog electronics Beat Masters simple everyday explained Rock Steiner Simple Recording Engineers Mix Turbo Electronics Live House Party Professor Explain Beats Everyday Exclaim.com\\n\n\n为了解释清楚，解释一下",
+      "generated_token_count": 37,
+      "window": 8,
+      "segments": [
+        {
+          "segment_idx": 0,
+          "tokens": [
+            "simple",
+            "explained",
+            "everyday",
+            "analog",
+            "rel",
+            "simple",
+            "professor",
+            "beatboxing"
+          ],
+          "unique_ratio": 0.875,
+          "content_ratio": 0.625,
+          "repeated_bigram_ratio": 0.0,
+          "dominant_token_share": 0.25
+        },
+        {
+          "segment_idx": 1,
+          "tokens": [
+            "professor",
+            "explained",
+            "everyday",
+            "rel",
+            "analog",
+            "electronics",
+            "beat",
+            "masters"
+          ],
+          "unique_ratio": 1.0,
+          "content_ratio": 0.875,
+          "repeated_bigram_ratio": 0.0,
+          "dominant_token_share": 0.125
+        },
+        {
+          "segment_idx": 2,
+          "tokens": [
+            "simple",
+            "everyday",
+            "explained",
+            "rock",
+            "steiner",
+            "simple",
+            "recording",
+            "engineers"
+          ],
+          "unique_ratio": 0.875,
+          "content_ratio": 0.75,
+          "repeated_bigram_ratio": 0.0,
+          "dominant_token_share": 0.25
+        },
+        {
+          "segment_idx": 3,
+          "tokens": [
+            "mix",
+            "turbo",
+            "electronics",
+            "live",
+            "house",
+            "party",
+            "professor",
+            "explain"
+          ],
+          "unique_ratio": 1.0,
+          "content_ratio": 0.875,
+          "repeated_bigram_ratio": 0.0,
+          "dominant_token_share": 0.125
+        },
+        {
+          "segment_idx": 4,
+          "tokens": [
+            "beats",
+            "everyday",
+            "exclaim",
+            "com",
+            "n"
+          ],
+          "unique_ratio": 1.0,
+          "content_ratio": 0.6,
+          "repeated_bigram_ratio": 0.0,
+          "dominant_token_share": 0.2
+        }
+      ],
+      "bad_segments": [],
+      "first_bad_segment_idx": null
+    }
+  ],
+  "error": null
+}
+```
+
+## Prefix Stepwise Drift Trajectory
+
+```json
+{
+  "passed": true,
+  "rows": [
+    {
+      "prompt": "Key piano ideas include",
+      "first_bad_step": 3,
+      "decoded_output": "Key piano ideas include piano music played by a group of people, piano music played by a single person",
+      "rows": [
+        {
+          "step": 0,
+          "top1": {
+            "token_id": 26278,
+            "piece": " piano",
+            "norm": "piano",
+            "logit": 14.5625,
+            "prob": 0.022471778094768524
+          },
+          "top1_category": "semantic",
+          "topk_category_counts": {
+            "semantic": 11,
+            "functional": 1,
+            "punct": 0
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.1052440945059061,
+            "functional": 0.009367630816996098,
+            "punct": 0.0
+          },
+          "chosen_token_id": 26278,
+          "chosen_piece": " piano",
+          "chosen_norm": "piano",
+          "chosen_category": "semantic"
+        },
+        {
+          "step": 1,
+          "top1": {
+            "token_id": 4627,
+            "piece": " music",
+            "norm": "music",
+            "logit": 16.5,
+            "prob": 0.14359383285045624
+          },
+          "top1_category": "semantic",
+          "topk_category_counts": {
+            "semantic": 11,
+            "functional": 1,
+            "punct": 0
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.4222646104171872,
+            "functional": 0.01714983768761158,
+            "punct": 0.0
+          },
+          "chosen_token_id": 4627,
+          "chosen_piece": " music",
+          "chosen_norm": "music",
+          "chosen_category": "semantic"
+        },
+        {
+          "step": 2,
+          "top1": {
+            "token_id": 6342,
+            "piece": " played",
+            "norm": "played",
+            "logit": 16.25,
+            "prob": 0.04747636988759041
+          },
+          "top1_category": "semantic",
+          "topk_category_counts": {
+            "semantic": 12,
+            "functional": 0,
+            "punct": 0
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.32131098583340645,
+            "functional": 0.0,
+            "punct": 0.0
+          },
+          "chosen_token_id": 6342,
+          "chosen_piece": " played",
+          "chosen_norm": "played",
+          "chosen_category": "semantic"
+        },
+        {
+          "step": 3,
+          "top1": {
+            "token_id": 553,
+            "piece": " by",
+            "norm": "by",
+            "logit": 21.75,
+            "prob": 0.35275381803512573
+          },
+          "top1_category": "functional",
+          "topk_category_counts": {
+            "semantic": 3,
+            "functional": 9,
+            "punct": 0
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.03319546673446894,
+            "functional": 0.845053973607719,
+            "punct": 0.0
+          },
+          "chosen_token_id": 553,
+          "chosen_piece": " by",
+          "chosen_norm": "by",
+          "chosen_category": "functional"
+        },
+        {
+          "step": 4,
+          "top1": {
+            "token_id": 264,
+            "piece": " a",
+            "norm": "a",
+            "logit": 19.875,
+            "prob": 0.4025022089481354
+          },
+          "top1_category": "functional",
+          "topk_category_counts": {
+            "semantic": 8,
+            "functional": 4,
+            "punct": 0
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.10441923514008522,
+            "functional": 0.5111324088647962,
+            "punct": 0.0
+          },
+          "chosen_token_id": 264,
+          "chosen_piece": " a",
+          "chosen_norm": "a",
+          "chosen_category": "functional"
+        },
+        {
+          "step": 5,
+          "top1": {
+            "token_id": 1874,
+            "piece": " group",
+            "norm": "group",
+            "logit": 17.75,
+            "prob": 0.07157830148935318
+          },
+          "top1_category": "semantic",
+          "topk_category_counts": {
+            "semantic": 12,
+            "functional": 0,
+            "punct": 0
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.437774870544672,
+            "functional": 0.0,
+            "punct": 0.0
+          },
+          "chosen_token_id": 1874,
+          "chosen_piece": " group",
+          "chosen_norm": "group",
+          "chosen_category": "semantic"
+        },
+        {
+          "step": 6,
+          "top1": {
+            "token_id": 315,
+            "piece": " of",
+            "norm": "of",
+            "logit": 23.375,
+            "prob": 0.9181607961654663
+          },
+          "top1_category": "functional",
+          "topk_category_counts": {
+            "semantic": 2,
+            "functional": 6,
+            "punct": 4
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.0034940909827128053,
+            "functional": 0.9548624495510012,
+            "punct": 0.019642041181214154
+          },
+          "chosen_token_id": 315,
+          "chosen_piece": " of",
+          "chosen_norm": "of",
+          "chosen_category": "functional"
+        },
+        {
+          "step": 7,
+          "top1": {
+            "token_id": 1251,
+            "piece": " people",
+            "norm": "people",
+            "logit": 19.5,
+            "prob": 0.19989538192749023
+          },
+          "top1_category": "semantic",
+          "topk_category_counts": {
+            "semantic": 11,
+            "functional": 0,
+            "punct": 1
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.6141480999067426,
+            "functional": 0.0,
+            "punct": 0.014480373822152615
+          },
+          "chosen_token_id": 1251,
+          "chosen_piece": " people",
+          "chosen_norm": "people",
+          "chosen_category": "semantic"
+        },
+        {
+          "step": 8,
+          "top1": {
+            "token_id": 11,
+            "piece": ",",
+            "norm": "",
+            "logit": 20.25,
+            "prob": 0.35401207208633423
+          },
+          "top1_category": "punct",
+          "topk_category_counts": {
+            "semantic": 3,
+            "functional": 7,
+            "punct": 2
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.15252810716629028,
+            "functional": 0.23186059575527906,
+            "punct": 0.3962927870452404
+          },
+          "chosen_token_id": 11,
+          "chosen_piece": ",",
+          "chosen_norm": "",
+          "chosen_category": "punct"
+        },
+        {
+          "step": 9,
+          "top1": {
+            "token_id": 26278,
+            "piece": " piano",
+            "norm": "piano",
+            "logit": 19.125,
+            "prob": 0.25543373823165894
+          },
+          "top1_category": "semantic",
+          "topk_category_counts": {
+            "semantic": 4,
+            "functional": 8,
+            "punct": 0
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.2917265063151717,
+            "functional": 0.2506570043042302,
+            "punct": 0.0
+          },
+          "chosen_token_id": 26278,
+          "chosen_piece": " piano",
+          "chosen_norm": "piano",
+          "chosen_category": "semantic"
+        },
+        {
+          "step": 10,
+          "top1": {
+            "token_id": 4627,
+            "piece": " music",
+            "norm": "music",
+            "logit": 21.5,
+            "prob": 0.5081874132156372
+          },
+          "top1_category": "semantic",
+          "topk_category_counts": {
+            "semantic": 12,
+            "functional": 0,
+            "punct": 0
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.6919754715636373,
+            "functional": 0.0,
+            "punct": 0.0
+          },
+          "chosen_token_id": 4627,
+          "chosen_piece": " music",
+          "chosen_norm": "music",
+          "chosen_category": "semantic"
+        },
+        {
+          "step": 11,
+          "top1": {
+            "token_id": 6342,
+            "piece": " played",
+            "norm": "played",
+            "logit": 23.5,
+            "prob": 0.6609588265419006
+          },
+          "top1_category": "semantic",
+          "topk_category_counts": {
+            "semantic": 5,
+            "functional": 7,
+            "punct": 0
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.7469433806836605,
+            "functional": 0.15220417501404881,
+            "punct": 0.0
+          },
+          "chosen_token_id": 6342,
+          "chosen_piece": " played",
+          "chosen_norm": "played",
+          "chosen_category": "semantic"
+        },
+        {
+          "step": 12,
+          "top1": {
+            "token_id": 553,
+            "piece": " by",
+            "norm": "by",
+            "logit": 25.625,
+            "prob": 0.8634439706802368
+          },
+          "top1_category": "functional",
+          "topk_category_counts": {
+            "semantic": 3,
+            "functional": 9,
+            "punct": 0
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.012745433952659369,
+            "functional": 0.9634383004158735,
+            "punct": 0.0
+          },
+          "chosen_token_id": 553,
+          "chosen_piece": " by",
+          "chosen_norm": "by",
+          "chosen_category": "functional"
+        },
+        {
+          "step": 13,
+          "top1": {
+            "token_id": 264,
+            "piece": " a",
+            "norm": "a",
+            "logit": 23.25,
+            "prob": 0.7681272625923157
+          },
+          "top1_category": "functional",
+          "topk_category_counts": {
+            "semantic": 6,
+            "functional": 6,
+            "punct": 0
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.024698108434677124,
+            "functional": 0.9075308958999813,
+            "punct": 0.0
+          },
+          "chosen_token_id": 264,
+          "chosen_piece": " a",
+          "chosen_norm": "a",
+          "chosen_category": "functional"
+        },
+        {
+          "step": 14,
+          "top1": {
+            "token_id": 3175,
+            "piece": " single",
+            "norm": "single",
+            "logit": 21.625,
+            "prob": 0.3078377842903137
+          },
+          "top1_category": "semantic",
+          "topk_category_counts": {
+            "semantic": 10,
+            "functional": 2,
+            "punct": 0
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.8800094407051802,
+            "functional": 0.008850840153172612,
+            "punct": 0.0
+          },
+          "chosen_token_id": 3175,
+          "chosen_piece": " single",
+          "chosen_norm": "single",
+          "chosen_category": "semantic"
+        },
+        {
+          "step": 15,
+          "top1": {
+            "token_id": 1697,
+            "piece": " person",
+            "norm": "person",
+            "logit": 24.125,
+            "prob": 0.8059787750244141
+          },
+          "top1_category": "semantic",
+          "topk_category_counts": {
+            "semantic": 12,
+            "functional": 0,
+            "punct": 0
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.9870424268301576,
+            "functional": 0.0,
+            "punct": 0.0
+          },
+          "chosen_token_id": 1697,
+          "chosen_piece": " person",
+          "chosen_norm": "person",
+          "chosen_category": "semantic"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "prompt": "Explain the topic clearly",
+      "first_bad_step": 3,
+      "decoded_output": "Explain the topic clearly again please Sure, I understand. Could you please provide more details about the topic",
+      "rows": [
+        {
+          "step": 0,
+          "top1": {
+            "token_id": 1549,
+            "piece": " again",
+            "norm": "again",
+            "logit": 13.75,
+            "prob": 0.07759435474872589
+          },
+          "top1_category": "semantic",
+          "topk_category_counts": {
+            "semantic": 12,
+            "functional": 0,
+            "punct": 0
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.3858708292245865,
+            "functional": 0.0,
+            "punct": 0.0
+          },
+          "chosen_token_id": 1549,
+          "chosen_piece": " again",
+          "chosen_norm": "again",
+          "chosen_category": "semantic"
+        },
+        {
+          "step": 1,
+          "top1": {
+            "token_id": 4486,
+            "piece": " please",
+            "norm": "please",
+            "logit": 15.9375,
+            "prob": 0.3783099353313446
+          },
+          "top1_category": "semantic",
+          "topk_category_counts": {
+            "semantic": 12,
+            "functional": 0,
+            "punct": 0
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.6847699582576752,
+            "functional": 0.0,
+            "punct": 0.0
+          },
+          "chosen_token_id": 4486,
+          "chosen_piece": " please",
+          "chosen_norm": "please",
+          "chosen_category": "semantic"
+        },
+        {
+          "step": 2,
+          "top1": {
+            "token_id": 22555,
+            "piece": " Sure",
+            "norm": "sure",
+            "logit": 13.875,
+            "prob": 0.13037247955799103
+          },
+          "top1_category": "semantic",
+          "topk_category_counts": {
+            "semantic": 12,
+            "functional": 0,
+            "punct": 0
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.39819562062621117,
+            "functional": 0.0,
+            "punct": 0.0
+          },
+          "chosen_token_id": 22555,
+          "chosen_piece": " Sure",
+          "chosen_norm": "sure",
+          "chosen_category": "semantic"
+        },
+        {
+          "step": 3,
+          "top1": {
+            "token_id": 11,
+            "piece": ",",
+            "norm": "",
+            "logit": 25.875,
+            "prob": 0.7600871920585632
+          },
+          "top1_category": "punct",
+          "topk_category_counts": {
+            "semantic": 0,
+            "functional": 1,
+            "punct": 11
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.0,
+            "functional": 0.0027413025964051485,
+            "punct": 0.9959888796292944
+          },
+          "chosen_token_id": 11,
+          "chosen_piece": ",",
+          "chosen_norm": "",
+          "chosen_category": "punct"
+        },
+        {
+          "step": 4,
+          "top1": {
+            "token_id": 358,
+            "piece": " I",
+            "norm": "i",
+            "logit": 22.875,
+            "prob": 0.6022639274597168
+          },
+          "top1_category": "functional",
+          "topk_category_counts": {
+            "semantic": 2,
+            "functional": 10,
+            "punct": 0
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.16802963241934776,
+            "functional": 0.7834495895076543,
+            "punct": 0.0
+          },
+          "chosen_token_id": 358,
+          "chosen_piece": " I",
+          "chosen_norm": "i",
+          "chosen_category": "functional"
+        },
+        {
+          "step": 5,
+          "top1": {
+            "token_id": 3535,
+            "piece": " understand",
+            "norm": "understand",
+            "logit": 25.0,
+            "prob": 0.27035436034202576
+          },
+          "top1_category": "semantic",
+          "topk_category_counts": {
+            "semantic": 3,
+            "functional": 9,
+            "punct": 0
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.3006711321650073,
+            "functional": 0.6883065896108747,
+            "punct": 0.0
+          },
+          "chosen_token_id": 3535,
+          "chosen_piece": " understand",
+          "chosen_norm": "understand",
+          "chosen_category": "semantic"
+        },
+        {
+          "step": 6,
+          "top1": {
+            "token_id": 13,
+            "piece": ".",
+            "norm": "",
+            "logit": 25.25,
+            "prob": 0.7361103296279907
+          },
+          "top1_category": "punct",
+          "topk_category_counts": {
+            "semantic": 0,
+            "functional": 6,
+            "punct": 6
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.0,
+            "functional": 0.19757586903870106,
+            "punct": 0.7884440977359191
+          },
+          "chosen_token_id": 13,
+          "chosen_piece": ".",
+          "chosen_norm": "",
+          "chosen_category": "punct"
+        },
+        {
+          "step": 7,
+          "top1": {
+            "token_id": 16503,
+            "piece": " Could",
+            "norm": "could",
+            "logit": 20.75,
+            "prob": 0.40132471919059753
+          },
+          "top1_category": "functional",
+          "topk_category_counts": {
+            "semantic": 2,
+            "functional": 10,
+            "punct": 0
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.20026730559766293,
+            "functional": 0.7284049061127007,
+            "punct": 0.0
+          },
+          "chosen_token_id": 16503,
+          "chosen_piece": " Could",
+          "chosen_norm": "could",
+          "chosen_category": "functional"
+        },
+        {
+          "step": 8,
+          "top1": {
+            "token_id": 498,
+            "piece": " you",
+            "norm": "you",
+            "logit": 31.125,
+            "prob": 0.9999086856842041
+          },
+          "top1_category": "functional",
+          "topk_category_counts": {
+            "semantic": 2,
+            "functional": 9,
+            "punct": 1
+          },
+          "topk_category_prob_mass": {
+            "semantic": 4.6337943103935686e-05,
+            "functional": 0.9999415683362258,
+            "punct": 3.7263127978803823e-06
+          },
+          "chosen_token_id": 498,
+          "chosen_piece": " you",
+          "chosen_norm": "you",
+          "chosen_category": "functional"
+        },
+        {
+          "step": 9,
+          "top1": {
+            "token_id": 4486,
+            "piece": " please",
+            "norm": "please",
+            "logit": 28.625,
+            "prob": 0.9552048444747925
+          },
+          "top1_category": "semantic",
+          "topk_category_counts": {
+            "semantic": 11,
+            "functional": 1,
+            "punct": 0
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.9982729351177113,
+            "functional": 0.0005283088539727032,
+            "punct": 0.0
+          },
+          "chosen_token_id": 4486,
+          "chosen_piece": " please",
+          "chosen_norm": "please",
+          "chosen_category": "semantic"
+        },
+        {
+          "step": 10,
+          "top1": {
+            "token_id": 3410,
+            "piece": " provide",
+            "norm": "provide",
+            "logit": 26.5,
+            "prob": 0.6061721444129944
+          },
+          "top1_category": "semantic",
+          "topk_category_counts": {
+            "semantic": 9,
+            "functional": 3,
+            "punct": 0
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.9606151098851115,
+            "functional": 0.02761935512535274,
+            "punct": 0.0
+          },
+          "chosen_token_id": 3410,
+          "chosen_piece": " provide",
+          "chosen_norm": "provide",
+          "chosen_category": "semantic"
+        },
+        {
+          "step": 11,
+          "top1": {
+            "token_id": 803,
+            "piece": " more",
+            "norm": "more",
+            "logit": 30.0,
+            "prob": 0.8112940192222595
+          },
+          "top1_category": "functional",
+          "topk_category_counts": {
+            "semantic": 4,
+            "functional": 8,
+            "punct": 0
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.005191119998926297,
+            "functional": 0.9938275447930209,
+            "punct": 0.0
+          },
+          "chosen_token_id": 803,
+          "chosen_piece": " more",
+          "chosen_norm": "more",
+          "chosen_category": "functional"
+        },
+        {
+          "step": 12,
+          "top1": {
+            "token_id": 3565,
+            "piece": " details",
+            "norm": "details",
+            "logit": 28.625,
+            "prob": 0.5158276557922363
+          },
+          "top1_category": "semantic",
+          "topk_category_counts": {
+            "semantic": 12,
+            "functional": 0,
+            "punct": 0
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.999372349382611,
+            "functional": 0.0,
+            "punct": 0.0
+          },
+          "chosen_token_id": 3565,
+          "chosen_piece": " details",
+          "chosen_norm": "details",
+          "chosen_category": "semantic"
+        },
+        {
+          "step": 13,
+          "top1": {
+            "token_id": 911,
+            "piece": " about",
+            "norm": "about",
+            "logit": 29.75,
+            "prob": 0.5333006978034973
+          },
+          "top1_category": "functional",
+          "topk_category_counts": {
+            "semantic": 1,
+            "functional": 8,
+            "punct": 3
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.003593351924791932,
+            "functional": 0.9700737095845398,
+            "punct": 0.025263762974645942
+          },
+          "chosen_token_id": 911,
+          "chosen_piece": " about",
+          "chosen_norm": "about",
+          "chosen_category": "functional"
+        },
+        {
+          "step": 14,
+          "top1": {
+            "token_id": 279,
+            "piece": " the",
+            "norm": "the",
+            "logit": 26.125,
+            "prob": 0.7618448138237
+          },
+          "top1_category": "functional",
+          "topk_category_counts": {
+            "semantic": 0,
+            "functional": 8,
+            "punct": 4
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.0,
+            "functional": 0.9921200984390453,
+            "punct": 0.00663956391508691
+          },
+          "chosen_token_id": 279,
+          "chosen_piece": " the",
+          "chosen_norm": "the",
+          "chosen_category": "functional"
+        },
+        {
+          "step": 15,
+          "top1": {
+            "token_id": 8544,
+            "piece": " topic",
+            "norm": "topic",
+            "logit": 24.875,
+            "prob": 0.8376904726028442
+          },
+          "top1_category": "semantic",
+          "topk_category_counts": {
+            "semantic": 11,
+            "functional": 0,
+            "punct": 1
+          },
+          "topk_category_prob_mass": {
+            "semantic": 0.9486623152624816,
+            "functional": 0.0,
+            "punct": 0.015342836268246174
+          },
+          "chosen_token_id": 8544,
+          "chosen_piece": " topic",
+          "chosen_norm": "topic",
+          "chosen_category": "semantic"
+        }
+      ],
+      "passed": true
+    }
+  ],
+  "error": null
+}
+```
+
+## Retrieval Generation Alignment Audit
+
+```json
+{
+  "passed": true,
+  "music_keywords": [
+    "pianist",
+    "practiced",
+    "arpeggios",
+    "chopin",
+    "nocturnes",
+    "midnight",
+    "musician",
+    "refined",
+    "finger",
+    "technique",
+    "phrasing",
+    "pedal"
+  ],
+  "space_keywords": [
+    "distant",
+    "astronomers",
+    "observed",
+    "galaxies",
+    "quasars",
+    "stellar",
+    "evolution",
+    "space",
+    "orbital",
+    "mechanics",
+    "explains",
+    "satellites"
+  ],
+  "diagnoses": {
+    "aligned": 2,
+    "retrieval_miss": 0,
+    "bridge_unused": 1,
+    "unknown": 0
+  },
+  "rows": [
+    {
+      "prompt": "What improves piano technique and musical phrasing?",
+      "expected_label": "music",
+      "retrieved_mids": [
+        1,
+        0,
+        3,
+        6,
+        2
+      ],
+      "retrieved_label_counts": {
+        "music": 4,
+        "space": 1
+      },
+      "retrieved_majority_label": "music",
+      "retrieved_text_preview": [
+        "A musician refined finger technique, phrasing, and pedal control on the piano.",
+        "The pianist practiced arpeggios and Chopin nocturnes until midnight.",
+        "A conservatory student studied etudes, scales, and expressive voicing on the keyboard."
+      ],
+      "output": "What improves piano technique and musical phrasing? piano technique technique piano or phrasing Which question?\\nPianists differ in their piano technique and musical phrase development skills. Technique encompasses a musician",
+      "music_score": 0.36363636363636365,
+      "space_score": 0.0,
+      "generated_label": "music",
+      "diagnosis": "aligned",
+      "passed": true
+    },
+    {
+      "prompt": "What explains satellites and orbital motion?",
+      "expected_label": "space",
+      "retrieved_mids": [
+        5,
+        6,
+        4,
+        2,
+        1
+      ],
+      "retrieved_label_counts": {
+        "space": 3,
+        "music": 2
+      },
+      "retrieved_majority_label": "space",
+      "retrieved_text_preview": [
+        "Orbital mechanics explains how satellites and planets move under gravitational force.",
+        "A telescope captured nebulae, exoplanets, and spectral signatures from distant stars.",
+        "Astronomers observed distant galaxies, quasars, and stellar evolution in deep space."
+      ],
+      "output": "What explains satellites and orbital motion? satellites explains satellites explains orbital motion.|orbital explain what and ;soliational satellites|. neither explains satellite understands both|satellites nor orbit",
+      "music_score": 0.0,
+      "space_score": 0.5714285714285714,
+      "generated_label": "space",
+      "diagnosis": "aligned",
+      "passed": true
+    },
+    {
+      "prompt": "Summarize the subject with concrete domain details.",
+      "expected_label": null,
+      "retrieved_mids": [
+        6,
+        3,
+        7,
+        1,
+        2
+      ],
+      "retrieved_label_counts": {
+        "space": 2,
+        "music": 3
+      },
+      "retrieved_majority_label": "music",
+      "retrieved_text_preview": [
+        "A telescope captured nebulae, exoplanets, and spectral signatures from distant stars.",
+        "A conservatory student studied etudes, scales, and expressive voicing on the keyboard.",
+        "Cosmology studies dark matter, expansion, and the large scale structure of the universe."
+      ],
+      "output": "Summarize the subject with concrete domain details. neb stars spectral signatures telescope captured distant stars neb signatures captured distant telescope spectral — Wikipedia neb是哪种天文观测的一种？\nA. x射线",
+      "music_score": 0.0,
+      "space_score": 0.1111111111111111,
+      "generated_label": "space",
+      "diagnosis": "bridge_unused",
+      "passed": true
+    }
+  ],
+  "error": null
+}
+```
+
+## Retrieval Prefix Decode Correlation Audit
+
+```json
+{
+  "passed": true,
+  "correlations": {
+    "retrieval_strength__prefix_l2": null,
+    "retrieval_strength__bad_decode_score": 0.19141101609315955,
+    "prefix_l2__bad_decode_score": null
+  },
+  "rows": [
+    {
+      "prompt": "What improves piano technique and musical phrasing?",
+      "expected_label": "music",
+      "retrieved_scored": [
+        {
+          "mid": 1,
+          "score": 0.5666224956512451
+        },
+        {
+          "mid": 0,
+          "score": 0.1936155676841736
+        },
+        {
+          "mid": 3,
+          "score": 0.06319719552993774
+        },
+        {
+          "mid": 6,
+          "score": 0.02747329771518707
+        },
+        {
+          "mid": 5,
+          "score": 0.02009677290916443
+        }
+      ],
+      "retrieved_label_counts": {
+        "music": 3,
+        "space": 2
+      },
+      "retrieval_strength": 0.8234352588653564,
+      "prefix_l2_shift": 322359623680.0,
+      "prefix_js_divergence": 0.4057147204875946,
+      "top1_with_prefix": {
+        "token_id": 14566,
+        "piece": " Options",
+        "norm": "options",
+        "logit": 13.5,
+        "prob": 0.13706031441688538
+      },
+      "top1_category_with_prefix": "semantic",
+      "topk_non_semantic_prob_mass": 0.0
+    },
+    {
+      "prompt": "What explains satellites and orbital motion?",
+      "expected_label": "space",
+      "retrieved_scored": [
+        {
+          "mid": 5,
+          "score": 0.5422837436199188
+        },
+        {
+          "mid": 4,
+          "score": 0.04626110792160035
+        },
+        {
+          "mid": 6,
+          "score": 0.04496051967144013
+        },
+        {
+          "mid": 0,
+          "score": 0.007697209715843201
+        },
+        {
+          "mid": 1,
+          "score": -0.006330269575119014
+        }
+      ],
+      "retrieved_label_counts": {
+        "space": 3,
+        "music": 2
+      },
+      "retrieval_strength": 0.6335053712129592,
+      "prefix_l2_shift": 322359623680.0,
+      "prefix_js_divergence": 0.519470751285553,
+      "top1_with_prefix": {
+        "token_id": 13177,
+        "piece": " Sat",
+        "norm": "sat",
+        "logit": 11.375,
+        "prob": 0.059120163321495056
+      },
+      "top1_category_with_prefix": "functional",
+      "topk_non_semantic_prob_mass": 0.09921016357839108
+    },
+    {
+      "prompt": "Describe what a student should focus on first.",
+      "expected_label": null,
+      "retrieved_scored": [
+        {
+          "mid": 3,
+          "score": 0.45830298662185676
+        },
+        {
+          "mid": 1,
+          "score": -0.007808592915534977
+        },
+        {
+          "mid": 0,
+          "score": -0.03504327237606048
+        },
+        {
+          "mid": 7,
+          "score": -0.038606351613998405
+        },
+        {
+          "mid": 4,
+          "score": -0.04108911752700806
+        }
+      ],
+      "retrieved_label_counts": {
+        "music": 3,
+        "space": 2
+      },
+      "retrieval_strength": 0.45830298662185676,
+      "prefix_l2_shift": 322359623680.0,
+      "prefix_js_divergence": 0.46133363246917725,
+      "top1_with_prefix": {
+        "token_id": 5209,
+        "piece": " Please",
+        "norm": "please",
+        "logit": 10.75,
+        "prob": 0.04425275698304176
+      },
+      "top1_category_with_prefix": "semantic",
+      "topk_non_semantic_prob_mass": 0.008185937069356441
+    },
+    {
+      "prompt": "Summarize the subject with concrete domain details.",
+      "expected_label": null,
+      "retrieved_scored": [
+        {
+          "mid": 7,
+          "score": -0.002285179495811463
+        },
+        {
+          "mid": 6,
+          "score": -0.010802556574344636
+        },
+        {
+          "mid": 5,
+          "score": -0.02638280838727951
+        },
+        {
+          "mid": 3,
+          "score": -0.026887077093124392
+        },
+        {
+          "mid": 1,
+          "score": -0.033489438891410823
+        }
+      ],
+      "retrieved_label_counts": {
+        "space": 3,
+        "music": 2
+      },
+      "retrieval_strength": -0.002285179495811463,
+      "prefix_l2_shift": 322359623680.0,
+      "prefix_js_divergence": 0.28409090638160706,
+      "top1_with_prefix": {
+        "token_id": 5209,
+        "piece": " Please",
+        "norm": "please",
+        "logit": 13.0625,
+        "prob": 0.04759139195084572
+      },
+      "top1_category_with_prefix": "semantic",
+      "topk_non_semantic_prob_mass": 0.016447145491838455
+    },
+    {
+      "prompt": "Key piano ideas include",
+      "expected_label": "music",
+      "retrieved_scored": [
+        {
+          "mid": 1,
+          "score": 0.5106263399124146
+        },
+        {
+          "mid": 0,
+          "score": 0.30423030257225037
+        },
+        {
+          "mid": 3,
+          "score": 0.10775353312492371
+        },
+        {
+          "mid": 6,
+          "score": 0.021317118406295778
+        },
+        {
+          "mid": 2,
+          "score": 0.0047838211059570215
+        }
+      ],
+      "retrieved_label_counts": {
+        "music": 4,
+        "space": 1
+      },
+      "retrieval_strength": 0.9273939967155457,
+      "prefix_l2_shift": 322359623680.0,
+      "prefix_js_divergence": 0.3469421863555908,
+      "top1_with_prefix": {
+        "token_id": 5619,
+        "piece": " playing",
+        "norm": "playing",
+        "logit": 14.0625,
+        "prob": 0.0223119854927063
+      },
+      "top1_category_with_prefix": "semantic",
+      "topk_non_semantic_prob_mass": 0.0
+    },
+    {
+      "prompt": "Orbital motion depends on",
+      "expected_label": "space",
+      "retrieved_scored": [
+        {
+          "mid": 2,
+          "score": 0.43496288061141974
+        },
+        {
+          "mid": 5,
+          "score": 0.04124398231506348
+        },
+        {
+          "mid": 3,
+          "score": -0.010372707247734071
+        },
+        {
+          "mid": 6,
+          "score": -0.03860478103160858
+        },
+        {
+          "mid": 4,
+          "score": -0.04442960172891618
+        }
+      ],
+      "retrieved_label_counts": {
+        "music": 2,
+        "space": 3
+      },
+      "retrieval_strength": -0.04179040044546128,
+      "prefix_l2_shift": 322359623680.0,
+      "prefix_js_divergence": 0.4793938994407654,
+      "top1_with_prefix": {
+        "token_id": 3807,
+        "piece": " several",
+        "norm": "several",
+        "logit": 16.25,
+        "prob": 0.05401330068707466
+      },
+      "top1_category_with_prefix": "semantic",
+      "topk_non_semantic_prob_mass": 0.0
+    }
+  ],
+  "error": null
+}
+```
+
+## Stepwise Label Mass Alignment Audit
+
+```json
+{
+  "passed": false,
+  "label_keywords": {
+    "music": [
+      "pianist",
+      "practiced",
+      "arpeggios",
+      "chopin",
+      "nocturnes",
+      "midnight",
+      "musician",
+      "refined",
+      "finger",
+      "technique",
+      "phrasing",
+      "pedal"
+    ],
+    "space": [
+      "distant",
+      "astronomers",
+      "observed",
+      "galaxies",
+      "quasars",
+      "stellar",
+      "evolution",
+      "space",
+      "orbital",
+      "mechanics",
+      "explains",
+      "satellites"
+    ]
+  },
+  "rows": [
+    {
+      "prompt": "What improves piano technique and musical phrasing?",
+      "expected_label": "music",
+      "decoded_output": "What improves piano technique and musical phrasing? Options refer correctly to the following: 1) finger strength",
+      "stage_counts": {
+        "inject": 8,
+        "decode": 2,
+        "aligned": 2
+      },
+      "rows": [
+        {
+          "step": 0,
+          "retrieved_majority_label": "music",
+          "retrieved_label_counts": {
+            "music": 3,
+            "space": 2
+          },
+          "retrieved_score_sum": {
+            "music": 1.0435107663273813,
+            "space": 0.22133269011974335
+          },
+          "logits_label_mass": {
+            "music": 0,
+            "space": 0
+          },
+          "top1_piece": " Options",
+          "top1_category": "semantic",
+          "chosen_piece": " Options",
+          "chosen_category": "semantic",
+          "chosen_label": null,
+          "diagnosed_stage": "inject"
+        },
+        {
+          "step": 1,
+          "retrieved_majority_label": "music",
+          "retrieved_label_counts": {
+            "music": 3,
+            "space": 2
+          },
+          "retrieved_score_sum": {
+            "music": 1.0435107663273813,
+            "space": 0.22133269011974335
+          },
+          "logits_label_mass": {
+            "music": 0,
+            "space": 0
+          },
+          "top1_piece": " refer",
+          "top1_category": "semantic",
+          "chosen_piece": " refer",
+          "chosen_category": "semantic",
+          "chosen_label": null,
+          "diagnosed_stage": "inject"
+        },
+        {
+          "step": 2,
+          "retrieved_majority_label": "music",
+          "retrieved_label_counts": {
+            "music": 3,
+            "space": 2
+          },
+          "retrieved_score_sum": {
+            "music": 1.0435107663273813,
+            "space": 0.22133269011974335
+          },
+          "logits_label_mass": {
+            "music": 0,
+            "space": 0
+          },
+          "top1_piece": " correctly",
+          "top1_category": "semantic",
+          "chosen_piece": " correctly",
+          "chosen_category": "semantic",
+          "chosen_label": null,
+          "diagnosed_stage": "inject"
+        },
+        {
+          "step": 3,
+          "retrieved_majority_label": "music",
+          "retrieved_label_counts": {
+            "music": 3,
+            "space": 2
+          },
+          "retrieved_score_sum": {
+            "music": 1.0435107663273813,
+            "space": 0.22133269011974335
+          },
+          "logits_label_mass": {
+            "music": 0,
+            "space": 0
+          },
+          "top1_piece": " to",
+          "top1_category": "functional",
+          "chosen_piece": " to",
+          "chosen_category": "functional",
+          "chosen_label": null,
+          "diagnosed_stage": "inject"
+        },
+        {
+          "step": 4,
+          "retrieved_majority_label": "music",
+          "retrieved_label_counts": {
+            "music": 3,
+            "space": 2
+          },
+          "retrieved_score_sum": {
+            "music": 1.0435107663273813,
+            "space": 0.22133269011974335
+          },
+          "logits_label_mass": {
+            "music": 0,
+            "space": 0
+          },
+          "top1_piece": " the",
+          "top1_category": "functional",
+          "chosen_piece": " the",
+          "chosen_category": "functional",
+          "chosen_label": null,
+          "diagnosed_stage": "inject"
+        },
+        {
+          "step": 5,
+          "retrieved_majority_label": "music",
+          "retrieved_label_counts": {
+            "music": 3,
+            "space": 2
+          },
+          "retrieved_score_sum": {
+            "music": 1.0435107663273813,
+            "space": 0.22133269011974335
+          },
+          "logits_label_mass": {
+            "music": 0,
+            "space": 0
+          },
+          "top1_piece": " following",
+          "top1_category": "semantic",
+          "chosen_piece": " following",
+          "chosen_category": "semantic",
+          "chosen_label": null,
+          "diagnosed_stage": "inject"
+        },
+        {
+          "step": 6,
+          "retrieved_majority_label": "music",
+          "retrieved_label_counts": {
+            "music": 3,
+            "space": 2
+          },
+          "retrieved_score_sum": {
+            "music": 1.0435107663273813,
+            "space": 0.22133269011974335
+          },
+          "logits_label_mass": {
+            "music": 0,
+            "space": 0
+          },
+          "top1_piece": ":",
+          "top1_category": "punct",
+          "chosen_piece": ":",
+          "chosen_category": "punct",
+          "chosen_label": null,
+          "diagnosed_stage": "inject"
+        },
+        {
+          "step": 7,
+          "retrieved_majority_label": "music",
+          "retrieved_label_counts": {
+            "music": 3,
+            "space": 2
+          },
+          "retrieved_score_sum": {
+            "music": 1.0435107663273813,
+            "space": 0.22133269011974335
+          },
+          "logits_label_mass": {
+            "music": 0.02174120396375656,
+            "space": 0
+          },
+          "top1_piece": " ",
+          "top1_category": "punct",
+          "chosen_piece": " ",
+          "chosen_category": "punct",
+          "chosen_label": "music",
+          "diagnosed_stage": "decode"
+        },
+        {
+          "step": 8,
+          "retrieved_majority_label": "music",
+          "retrieved_label_counts": {
+            "music": 3,
+            "space": 2
+          },
+          "retrieved_score_sum": {
+            "music": 0.9902606874704362,
+            "space": 0.20493463277816776
+          },
+          "logits_label_mass": {
+            "music": 0,
+            "space": 0
+          },
+          "top1_piece": "1",
+          "top1_category": "punct",
+          "chosen_piece": "1",
+          "chosen_category": "punct",
+          "chosen_label": null,
+          "diagnosed_stage": "inject"
+        },
+        {
+          "step": 9,
+          "retrieved_majority_label": "music",
+          "retrieved_label_counts": {
+            "music": 3,
+            "space": 2
+          },
+          "retrieved_score_sum": {
+            "music": 0.9902606874704362,
+            "space": 0.20493463277816776
+          },
+          "logits_label_mass": {
+            "music": 0.0039486936293542385,
+            "space": 0
+          },
+          "top1_piece": ")",
+          "top1_category": "punct",
+          "chosen_piece": ")",
+          "chosen_category": "punct",
+          "chosen_label": "music",
+          "diagnosed_stage": "decode"
+        },
+        {
+          "step": 10,
+          "retrieved_majority_label": "music",
+          "retrieved_label_counts": {
+            "music": 3,
+            "space": 2
+          },
+          "retrieved_score_sum": {
+            "music": 0.9902606874704362,
+            "space": 0.20493463277816776
+          },
+          "logits_label_mass": {
+            "music": 0.08104779571294785,
+            "space": 0
+          },
+          "top1_piece": " finger",
+          "top1_category": "semantic",
+          "chosen_piece": " finger",
+          "chosen_category": "semantic",
+          "chosen_label": "music",
+          "diagnosed_stage": "aligned"
+        },
+        {
+          "step": 11,
+          "retrieved_majority_label": "music",
+          "retrieved_label_counts": {
+            "music": 3,
+            "space": 2
+          },
+          "retrieved_score_sum": {
+            "music": 0.9902606874704362,
+            "space": 0.20493463277816776
+          },
+          "logits_label_mass": {
+            "music": 0.03306255117058754,
+            "space": 0
+          },
+          "top1_piece": " strength",
+          "top1_category": "semantic",
+          "chosen_piece": " strength",
+          "chosen_category": "semantic",
+          "chosen_label": "music",
+          "diagnosed_stage": "aligned"
+        }
+      ],
+      "passed": false
+    },
+    {
+      "prompt": "What explains satellites and orbital motion?",
+      "expected_label": "space",
+      "decoded_output": "What explains satellites and orbital motion? Sat phones rely on satellites to communicate with the earth. Sat",
+      "stage_counts": {
+        "inject": 7,
+        "aligned": 4,
+        "decode": 1
+      },
+      "rows": [
+        {
+          "step": 0,
+          "retrieved_majority_label": "space",
+          "retrieved_label_counts": {
+            "space": 4,
+            "music": 1
+          },
+          "retrieved_score_sum": {
+            "space": 1.0372649282217026,
+            "music": 0.10249900519847871
+          },
+          "logits_label_mass": {
+            "music": 0,
+            "space": 0
+          },
+          "top1_piece": " Sat",
+          "top1_category": "functional",
+          "chosen_piece": " Sat",
+          "chosen_category": "functional",
+          "chosen_label": null,
+          "diagnosed_stage": "inject"
+        },
+        {
+          "step": 1,
+          "retrieved_majority_label": "space",
+          "retrieved_label_counts": {
+            "space": 4,
+            "music": 1
+          },
+          "retrieved_score_sum": {
+            "space": 1.0372649282217026,
+            "music": 0.10249900519847871
+          },
+          "logits_label_mass": {
+            "music": 0,
+            "space": 0.00805650744587183
+          },
+          "top1_piece": " phones",
+          "top1_category": "semantic",
+          "chosen_piece": " phones",
+          "chosen_category": "semantic",
+          "chosen_label": "space",
+          "diagnosed_stage": "aligned"
+        },
+        {
+          "step": 2,
+          "retrieved_majority_label": "space",
+          "retrieved_label_counts": {
+            "space": 4,
+            "music": 1
+          },
+          "retrieved_score_sum": {
+            "space": 1.0372649282217026,
+            "music": 0.10249900519847871
+          },
+          "logits_label_mass": {
+            "music": 0,
+            "space": 0.026034891605377197
+          },
+          "top1_piece": " rely",
+          "top1_category": "semantic",
+          "chosen_piece": " rely",
+          "chosen_category": "semantic",
+          "chosen_label": "space",
+          "diagnosed_stage": "aligned"
+        },
+        {
+          "step": 3,
+          "retrieved_majority_label": "space",
+          "retrieved_label_counts": {
+            "space": 4,
+            "music": 1
+          },
+          "retrieved_score_sum": {
+            "space": 1.0372649282217026,
+            "music": 0.10249900519847871
+          },
+          "logits_label_mass": {
+            "music": 0,
+            "space": 0
+          },
+          "top1_piece": " on",
+          "top1_category": "functional",
+          "chosen_piece": " on",
+          "chosen_category": "functional",
+          "chosen_label": null,
+          "diagnosed_stage": "inject"
+        },
+        {
+          "step": 4,
+          "retrieved_majority_label": "space",
+          "retrieved_label_counts": {
+            "space": 4,
+            "music": 1
+          },
+          "retrieved_score_sum": {
+            "space": 1.0372649282217026,
+            "music": 0.10249900519847871
+          },
+          "logits_label_mass": {
+            "music": 0,
+            "space": 0.2705879509449005
+          },
+          "top1_piece": " satellites",
+          "top1_category": "semantic",
+          "chosen_piece": " satellites",
+          "chosen_category": "semantic",
+          "chosen_label": "space",
+          "diagnosed_stage": "aligned"
+        },
+        {
+          "step": 5,
+          "retrieved_majority_label": "space",
+          "retrieved_label_counts": {
+            "space": 4,
+            "music": 1
+          },
+          "retrieved_score_sum": {
+            "space": 1.0372649282217026,
+            "music": 0.10249900519847871
+          },
+          "logits_label_mass": {
+            "music": 0,
+            "space": 0
+          },
+          "top1_piece": " to",
+          "top1_category": "functional",
+          "chosen_piece": " to",
+          "chosen_category": "functional",
+          "chosen_label": null,
+          "diagnosed_stage": "inject"
+        },
+        {
+          "step": 6,
+          "retrieved_majority_label": "space",
+          "retrieved_label_counts": {
+            "space": 4,
+            "music": 1
+          },
+          "retrieved_score_sum": {
+            "space": 1.0372649282217026,
+            "music": 0.10249900519847871
+          },
+          "logits_label_mass": {
+            "music": 0,
+            "space": 0
+          },
+          "top1_piece": " communicate",
+          "top1_category": "semantic",
+          "chosen_piece": " communicate",
+          "chosen_category": "semantic",
+          "chosen_label": null,
+          "diagnosed_stage": "inject"
+        },
+        {
+          "step": 7,
+          "retrieved_majority_label": "space",
+          "retrieved_label_counts": {
+            "space": 4,
+            "music": 1
+          },
+          "retrieved_score_sum": {
+            "space": 1.0372649282217026,
+            "music": 0.10249900519847871
+          },
+          "logits_label_mass": {
+            "music": 0,
+            "space": 0
+          },
+          "top1_piece": " with",
+          "top1_category": "functional",
+          "chosen_piece": " with",
+          "chosen_category": "functional",
+          "chosen_label": null,
+          "diagnosed_stage": "inject"
+        },
+        {
+          "step": 8,
+          "retrieved_majority_label": "space",
+          "retrieved_label_counts": {
+            "space": 3,
+            "music": 2
+          },
+          "retrieved_score_sum": {
+            "space": 0.9715059369802477,
+            "music": 0.2053791642189026
+          },
+          "logits_label_mass": {
+            "music": 0,
+            "space": 0.012124557048082352
+          },
+          "top1_piece": " the",
+          "top1_category": "functional",
+          "chosen_piece": " the",
+          "chosen_category": "functional",
+          "chosen_label": "space",
+          "diagnosed_stage": "decode"
+        },
+        {
+          "step": 9,
+          "retrieved_majority_label": "space",
+          "retrieved_label_counts": {
+            "space": 3,
+            "music": 2
+          },
+          "retrieved_score_sum": {
+            "space": 0.9715059369802477,
+            "music": 0.2053791642189026
+          },
+          "logits_label_mass": {
+            "music": 0,
+            "space": 0.013147084042429924
+          },
+          "top1_piece": " earth",
+          "top1_category": "semantic",
+          "chosen_piece": " earth",
+          "chosen_category": "semantic",
+          "chosen_label": "space",
+          "diagnosed_stage": "aligned"
+        },
+        {
+          "step": 10,
+          "retrieved_majority_label": "space",
+          "retrieved_label_counts": {
+            "space": 3,
+            "music": 2
+          },
+          "retrieved_score_sum": {
+            "space": 0.9715059369802477,
+            "music": 0.2053791642189026
+          },
+          "logits_label_mass": {
+            "music": 0,
+            "space": 0
+          },
+          "top1_piece": ".",
+          "top1_category": "punct",
+          "chosen_piece": ".",
+          "chosen_category": "punct",
+          "chosen_label": null,
+          "diagnosed_stage": "inject"
+        },
+        {
+          "step": 11,
+          "retrieved_majority_label": "space",
+          "retrieved_label_counts": {
+            "space": 3,
+            "music": 2
+          },
+          "retrieved_score_sum": {
+            "space": 0.9715059369802477,
+            "music": 0.2053791642189026
+          },
+          "logits_label_mass": {
+            "music": 0,
+            "space": 0
+          },
+          "top1_piece": " Sat",
+          "top1_category": "functional",
+          "chosen_piece": " Sat",
+          "chosen_category": "functional",
+          "chosen_label": null,
+          "diagnosed_stage": "inject"
+        }
+      ],
+      "passed": false
+    }
+  ],
+  "error": null
+}
+```
+
+## Prompt Diversity Without Memory
+
+```json
+{
+  "passed": true,
+  "prompts": [
+    "The pianist",
+    "Quantum systems",
+    "The rainforest"
+  ],
+  "outputs": [
+    "The pianist Hannah wants balloons proportional weights totaling $S = 108 \\div (-6)$",
+    "Quantum systems cryptography aims towards computing that runs probabilistically prob（填空1）____可预见的结果",
+    "The rainforest chicken Cass spp是喜温带季风气候吗____。（判断对错 【生物"
+  ],
+  "unique_count": 3,
+  "error": null
+}
+```
+
+## Save/Load Consistency
+
+```json
+{
+  "passed": true,
+  "prompt": "The pianist",
+  "output_a": "The pianist piano piano keys white feet artist drawing illustration blue colored guitar with colorful notes\r\n\"\"\"\n\\no",
+  "output_b": "The pianist piano piano keys white feet artist drawing illustration blue colored guitar with colorful notes\r\n\"\"\"\n\\no",
+  "error": null
+}
+```
+
+## Training Cache Isolation
+
+```json
+{
+  "passed": true,
+  "changed": [],
+  "memory_count": 8,
+  "error": null
+}
+```
+
+## Cheating Heuristics
+
+```json
+{
+  "passed": true,
+  "outputs": [
+    "The pianist piano piano Best Japanのレビュー・感想 >> tag一�romanz.ru\nDCF",
+    "The telescope wine restaurant exquisite five course pair meal served pair five exquisite wine course restaurant Norwich meal --zh",
+    "The trader restaurant exquisite five course meal pair wine restaurant five course pair meal exquisite mp3 song -- download",
+    "The child course exquisite five pair restaurant wine meal served restaurant exquisite pair five wine served meal.vn course course"
+  ],
+  "exact_same": false,
+  "prefix_only": false,
+  "too_short": false,
+  "error": null
+}
+```
