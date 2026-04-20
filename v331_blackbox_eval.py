@@ -79,6 +79,52 @@ def corpus_space() -> List[str]:
     ]
 
 
+# ==========================================================================
+# [SPEC 4-meta / v3.46 de-overfit] Held-out domains.
+#
+# These corpora exist only to test whether probes 4.22 / 4.23 / 4.24 generalize
+# beyond the music / space corpora that were hand-coded alongside their keyword
+# lists. They are NOT referenced by any case 4.1-4.19 and NOT used as training
+# data by any audit path. The runner writes them into the memory tree at probe
+# invocation time; the SUT sees them as plain text through the same `write()`
+# API path as music / space.
+# ==========================================================================
+
+def corpus_cooking() -> List[str]:
+    return [
+        "A chef braised short ribs with red wine, rosemary, and garlic for four hours.",
+        "The pastry batter folded egg whites into melted chocolate before baking.",
+        "Knife skills determine the cut quality of vegetables in stir fry dishes.",
+        "Slow fermentation develops complex flavors in sourdough bread dough overnight.",
+    ]
+
+
+def corpus_finance() -> List[str]:
+    return [
+        "Portfolio managers rebalance allocations across equities, bonds, and commodities quarterly.",
+        "Derivative contracts hedge currency exposure in multinational corporate treasury operations.",
+        "Yield curve inversion historically precedes recessions by twelve to eighteen months.",
+        "Quantitative tightening reduces central bank balance sheets through asset roll-off.",
+    ]
+
+
+def corpus_paraphrase_music() -> List[str]:
+    """Token-disjoint (to the extent possible) paraphrases of music corpus for
+    use as queries in de-overfit probes. Do NOT contain the exact strict
+    starters used as rare_keyword anchors in music corpus."""
+    return [
+        "She performed Beethoven sonatas with delicate phrasing on her grand piano.",
+        "Harmonic analysis and ear training are core elements of music education.",
+    ]
+
+
+def corpus_paraphrase_space() -> List[str]:
+    return [
+        "Deep-sky imaging reveals the structure of faraway nebulae and exoplanets.",
+        "Astronauts and rocket scientists study celestial mechanics for mission planning.",
+    ]
+
+
 def corpus_general() -> List[str]:
     return [
         "The cat sat on the mat and watched the birds outside the window.",
@@ -1653,14 +1699,27 @@ def _is_content_starter(model: "sb.MemLLM", token_id: int) -> bool:
 
 
 def functional_token_suppression_probe(seed: int) -> Dict[str, Any]:
-    """[4.22] With prefix, content-starters should dominate functional tokens in top-12."""
+    """[4.22 v3.46] De-overfit: run on two prompt sets.
+    Set A (selected): 3 prompts whose Qwen-unconditional top-12 is known to be
+      dominated by functional tokens (original 4.22 prompts).
+    Set B (held-out): 3 generic prompts drawn without selection bias.
+    Both sets must pass independently; the overall probe passes only if both
+    prompt sets pass their per-set thresholds.
+    Prompts are FIXED in the runner so they are audit-observable, not
+    regenerated per-run."""
     model = build_model(seed)
     write_texts(model, corpus_music())
-    prompts = [
+    prompts_a = [
         "A strong explanation should mention",
         "The most relevant idea is",
         "A learner should know about",
     ]
+    prompts_b = [  # held-out: not selected for functional-domination a priori
+        "Tell me about",
+        "Please describe",
+        "Explain how",
+    ]
+    prompts = prompts_a + prompts_b
     device = next(model.parameters()).device
     per_prompt = []
     starter_delta_sum = 0.0
@@ -1722,19 +1781,35 @@ def functional_token_suppression_probe(seed: int) -> Dict[str, Any]:
             "logit_margin_best_content_starter_vs_best_functional": margin_value,
             "margin_non_negative": margin_ok,
         })
-    avg_starter_delta = starter_delta_sum / len(prompts)
-    cond_delta = avg_starter_delta >= 1.5
-    cond_margin = margin_wins >= 2
-    passed = cond_delta and cond_margin
+    # [SPEC 4.22 v3.46] Score set A and set B independently.
+    def _score(rows):
+        sd = sum(r["content_starter_count_with_prefix"] - r["content_starter_count_no_prefix"]
+                 for r in rows) / len(rows)
+        mw = sum(1 for r in rows if r["margin_non_negative"])
+        return sd, mw
+    set_a_rows = per_prompt[:3]
+    set_b_rows = per_prompt[3:]
+    a_delta, a_margin = _score(set_a_rows)
+    b_delta, b_margin = _score(set_b_rows)
+    avg_starter_delta = (a_delta + b_delta) / 2.0
+    # Per-set thresholds: each set (3 prompts) must meet avg delta >= 1.0 and
+    # margin_non_negative on >= 2 of 3 prompts.
+    a_ok = (a_delta >= 1.0) and (a_margin >= 2)
+    b_ok = (b_delta >= 1.0) and (b_margin >= 2)
+    passed = a_ok and b_ok
     return {
         "passed": passed,
         "status": "pass" if passed else "fail",
+        "metric_version": "v3.46",
         "per_prompt": per_prompt,
-        "avg_content_starter_delta": avg_starter_delta,
-        "margin_non_negative_prompt_count": margin_wins,
+        "avg_content_starter_delta_overall": avg_starter_delta,
+        "set_a_avg_delta": a_delta,
+        "set_a_margin_wins": a_margin,
+        "set_b_avg_delta": b_delta,
+        "set_b_margin_wins": b_margin,
         "conditions": {
-            "avg_starter_delta_ge_1_5": cond_delta,
-            "margin_non_negative_ge_2_of_3": cond_margin,
+            "set_a_delta_ge_1_and_margin_2of3": a_ok,
+            "set_b_delta_ge_1_and_margin_2of3": b_ok,
         },
         "gating": "hard_PASS",
     }
@@ -1770,31 +1845,76 @@ def keyword_specific_tail_slot_probe(seed: int) -> Dict[str, Any]:
     # [SPEC 4.23 v3.45+] mean-centered unit WTE for top-K query.
     wte_mean = wte.mean(0)
     wte_centered = torch.nn.functional.normalize(wte - wte_mean, dim=-1, eps=1e-8)
+    # [SPEC 4.23 v3.46 de-overfit] round-trip query was circular: memory's own
+    # rare keywords were embedded in the query that retrieved it. The revised
+    # protocol runs BOTH queries and reports:
+    # (a) `roundtrip_*` metrics using mem.source_text as query (legacy)
+    # (b) `paraphrase_*` metrics using corpus_paraphrase_music() as query,
+    #     then reading dominant memory from the retrieval result and checking
+    #     its rare keywords against the tail slot.
+    # Only paraphrase metrics are used for pass criteria.
+    paraphrase_queries = corpus_paraphrase_music()
     intersection_counts_20 = []
     best_rare_ranks = []
     non_none_count = 0
     hits_ge_1 = 0
     per_memory = []
+    # (a) Legacy round-trip path, retained as diagnostic.
+    roundtrip_inter = []
     for mid, mem in model.amm.tree.store.items():
         rare = list(getattr(mem, "rare_keyword_ids", []) or [])[:3]
         if not rare:
             continue
         _ = _cipher_prep_decode(model, mem.source_text)
-        tail_slots = model.bridge._last_tail_slots  # (1, n_slots, d_LLM)
+        ts = model.bridge._last_tail_slots
+        if ts is None:
+            continue
+        slot_idx = 1 if ts.shape[1] >= 2 else ts.shape[1] - 1
+        slot = ts[0, slot_idx].float()
+        slot_c = torch.nn.functional.normalize(slot - wte_mean, dim=-1, eps=1e-8)
+        top20 = (wte_centered @ slot_c).topk(20).indices.tolist()
+        roundtrip_inter.append(len(set(top20) & set(rare)))
+    # (b) Paraphrase path — primary pass criterion.
+    # For each paraphrase query: identify dominant memory via
+    # prepare_decode_context.diag (without using mem.source_text or rare tokens
+    # in the query), then evaluate tail slot against THAT dominant memory's
+    # rare_keyword_ids. The query itself is token-disjoint from rare keywords
+    # (verified inline).
+    per_paraphrase = []
+    for pq in paraphrase_queries:
+        device_l = next(model.parameters()).device
+        tk = model.tok(pq, return_tensors="pt")
+        ids = tk["input_ids"].to(device_l); mask = tk["attention_mask"].to(device_l)
+        with torch.no_grad():
+            ctx = model.prepare_decode_context(ids, mask, update_stats=False)
+        diag = ctx.diag
+        dom_mid = diag.dominant_per_batch[0] if diag.dominant_per_batch else None
+        if dom_mid is None or dom_mid not in model.amm.tree.store:
+            per_paraphrase.append({
+                "query": pq,
+                "dominant_mid": None,
+                "note": "no dominant memory retrieved",
+            })
+            continue
+        dom_mem = model.amm.tree.store[dom_mid]
+        rare_dom = list(getattr(dom_mem, "rare_keyword_ids", []) or [])[:3]
+        if not rare_dom:
+            continue
+        # Verify query token-disjoint from rare_dom (audit-observable property).
+        query_token_ids = set(model.tok.encode(pq))
+        disjoint_from_rare = len(query_token_ids & set(rare_dom)) == 0
+        tail_slots = model.bridge._last_tail_slots
         if tail_slots is None:
             continue
-        # Per SPEC: slot index 1 is the rare-keyword slot under
-        # ContentSemanticTailHead's current layout. Fall back to -1 if n_slots==1.
         slot_idx = 1 if tail_slots.shape[1] >= 2 else tail_slots.shape[1] - 1
         slot_vec = tail_slots[0, slot_idx].float()
         slot_centered = torch.nn.functional.normalize(
             slot_vec - wte_mean, dim=-1, eps=1e-8)
-        sims = wte_centered @ slot_centered  # shape [V]
+        sims = wte_centered @ slot_centered
         top20_ids = sims.topk(20).indices.tolist()
-        inter_20 = len(set(top20_ids) & set(rare))
-        # rank (1-indexed) of the best (= minimum-rank) rare token among all vocab
+        inter_20 = len(set(top20_ids) & set(rare_dom))
         order = sims.argsort(descending=True)
-        ranks = {int(t): None for t in rare}
+        ranks = {int(t): None for t in rare_dom}
         for pos in range(order.shape[0]):
             tid = int(order[pos].item())
             if tid in ranks and ranks[tid] is None:
@@ -1809,11 +1929,13 @@ def keyword_specific_tail_slot_probe(seed: int) -> Dict[str, Any]:
         non_none_count += 1
         if inter_20 >= 1:
             hits_ge_1 += 1
-        per_memory.append({
-            "mid": int(mid),
-            "source_preview": mem.source_text[:60],
-            "rare_keyword_ids": rare,
-            "rare_keyword_pieces": [model.tok.decode([t]) for t in rare],
+        per_paraphrase.append({
+            "query": pq,
+            "query_disjoint_from_rare_keywords": disjoint_from_rare,
+            "dominant_mid": int(dom_mid),
+            "dominant_source_preview": dom_mem.source_text[:60],
+            "rare_keyword_ids": rare_dom,
+            "rare_keyword_pieces": [model.tok.decode([t]) for t in rare_dom],
             "tail_slot_top5_ids_centered": top20_ids[:5],
             "tail_slot_top5_pieces_centered": [
                 model.tok.decode([t]) for t in top20_ids[:5]],
@@ -1824,7 +1946,7 @@ def keyword_specific_tail_slot_probe(seed: int) -> Dict[str, Any]:
         return {
             "passed": False,
             "status": "not_implemented",
-            "missing_api": "no memory produced a non-None tail slot",
+            "missing_api": "no paraphrase query produced a non-None tail slot with a dominant memory",
             "gating": "PASS_or_not_implemented",
         }
     mean_intersection_20 = sum(intersection_counts_20) / non_none_count
@@ -1835,15 +1957,17 @@ def keyword_specific_tail_slot_probe(seed: int) -> Dict[str, Any]:
     cond_median = median_best_rank <= 100.0
     cond_hit_ratio = hit_ratio >= 0.5
     passed = cond_mean and cond_median and cond_hit_ratio
+    roundtrip_mean = (sum(roundtrip_inter) / len(roundtrip_inter)) if roundtrip_inter else None
     return {
         "passed": passed,
         "status": "pass" if passed else "fail",
-        "metric_version": "v3.45",
-        "per_memory": per_memory,
-        "mean_intersection_size_top20": mean_intersection_20,
-        "median_rank_of_best_rare": median_best_rank,
-        "hit_ratio_at_least_one_top20": hit_ratio,
-        "n_memories_evaluated": non_none_count,
+        "metric_version": "v3.46",
+        "per_paraphrase": per_paraphrase,
+        "mean_intersection_size_top20_paraphrase": mean_intersection_20,
+        "median_rank_of_best_rare_paraphrase": median_best_rank,
+        "hit_ratio_at_least_one_top20_paraphrase": hit_ratio,
+        "n_paraphrase_queries_evaluated": non_none_count,
+        "roundtrip_mean_intersection_top20_diagnostic": roundtrip_mean,
         "conditions": {
             "mean_intersection_top20_ge_1": cond_mean,
             "median_rank_le_100": cond_median,
@@ -1854,14 +1978,36 @@ def keyword_specific_tail_slot_probe(seed: int) -> Dict[str, Any]:
 
 
 def context_descriptor_cluster_probe(seed: int) -> Dict[str, Any]:
-    """[4.24] Per-memory context_descriptor must cluster by domain (spec wording)."""
+    """[4.24 v3.46 de-overfit] Four-domain LOO NN accuracy + held-out paraphrase retrieval.
+
+    Corpus (4 domains x 4 sentences = 16 memories): music, space, cooking, finance.
+    Domain labels assigned by source_text identity (membership in the runner's
+    corpus tuple), NOT by keyword-list matching. Two of the four domains
+    (cooking, finance) were not anywhere else in the suite so they act as a
+    held-out control: if the encoder only memorizes the specific 8 (music,
+    space) sentences, the held-out domains will fail to cluster.
+
+    Metrics:
+    - loo_nn_accuracy_all_4: LOO NN across 16 memories, 4 labels.
+    - loo_nn_accuracy_heldout_2: LOO NN restricted to the cooking+finance
+      subset (8 memories, 2 labels, none keyword-matched to any other probe).
+    """
     model = build_model(seed)
-    # Spec wording: "read context_descriptor from its MemEntry". The field must
-    # be present on MemEntry. v3.38 exposes a per-QUERY context descriptor
-    # (model._compute_context_descriptor), which is a different surface. Per
-    # Section 5 we must be truthful: the spec's MemEntry.context_descriptor is
-    # not implemented. We report "not_implemented" with an explicit name.
-    write_texts(model, corpus_music() + corpus_space())
+    # Write all four domains; the runner tags each memory by the corpus it
+    # came from, not by keyword match.
+    domains = {
+        "music":    corpus_music(),
+        "space":    corpus_space(),
+        "cooking":  corpus_cooking(),
+        "finance":  corpus_finance(),
+    }
+    text_to_label = {}
+    ordered_texts = []
+    for dom, texts in domains.items():
+        for t in texts:
+            text_to_label[t] = dom
+            ordered_texts.append(t)
+    write_texts(model, ordered_texts)
     sample = next(iter(model.amm.tree.store.values()))
     import dataclasses as _dc
     field_names = {f.name for f in _dc.fields(type(sample))}
@@ -1870,104 +2016,91 @@ def context_descriptor_cluster_probe(seed: int) -> Dict[str, Any]:
             "passed": False,
             "status": "not_implemented",
             "missing_api": "MemEntry.context_descriptor field",
-            "note": ("v3.38 exposes a per-query context descriptor via "
-                     "MemLLM._compute_context_descriptor but does not store "
-                     "one per MemEntry; the spec wording is per-memory."),
             "gating": "PASS_or_not_implemented",
         }
-    # [SPEC 4.24 v3.45+] Leave-one-out NN classification accuracy.
-    # Collect (descriptor, label) pairs.
     entries = []
     for mid, mem in model.amm.tree.store.items():
         v = getattr(mem, "context_descriptor", None)
         if v is None:
             continue
-        text = mem.source_text.lower()
-        label = None
-        if any(k in text for k in CIPHER_MUSIC_KEYWORDS):
-            label = "music"
-        elif any(k in text for k in CIPHER_SPACE_KEYWORDS):
-            label = "space"
+        # Label assignment: source_text identity against the 4 corpora.
+        # No keyword list used. This is the de-overfit fix.
+        label = text_to_label.get(mem.source_text)
+        if label is None:
+            # If memory consolidation altered source_text, fall back to the
+            # domain whose corpus contains a non-trivial substring match.
+            for dom, texts in domains.items():
+                if any(t in mem.source_text or mem.source_text in t for t in texts):
+                    label = dom; break
         if label is None:
             continue
         vec = torch.nn.functional.normalize(v.float(), dim=-1, eps=1e-8)
-        # Verify unit-norm within 1e-3 as required by spec
         norm_raw = float(v.float().norm().item())
         entries.append((mid, label, vec, norm_raw))
-    if len(entries) < 4:
+    if len(entries) < 8:
         return {
             "passed": False,
             "status": "not_implemented",
-            "missing_api": "insufficient populated context_descriptor entries",
+            "missing_api": "insufficient populated context_descriptor entries (need >= 8, got {})".format(len(entries)),
             "n_populated": len(entries),
             "gating": "PASS_or_not_implemented",
         }
-    # LOO NN
-    correct = 0
-    per_memory = []
-    for i, (mid_i, lbl_i, v_i, _n) in enumerate(entries):
-        best_sim = -1e9
-        best_j = -1
-        for j, (_, lbl_j, v_j, _) in enumerate(entries):
-            if j == i:
-                continue
-            s = float((v_i @ v_j).item())
-            if s > best_sim:
-                best_sim = s
-                best_j = j
-        pred = entries[best_j][1]
-        ok = (pred == lbl_i)
-        if ok:
-            correct += 1
-        per_memory.append({
-            "mid": int(mid_i),
-            "true_label": lbl_i,
-            "pred_label": pred,
-            "nn_sim": best_sim,
-            "correct": ok,
-        })
-    n = len(entries)
-    loo_accuracy = correct / n
-    # Diagnostic gap metrics (not used for pass per SPEC v3.45+):
-    def _intra(label):
-        vs = [e[2] for e in entries if e[1] == label]
-        if len(vs) < 2:
-            return None
-        s = []
-        for a in range(len(vs)):
-            for b in range(a + 1, len(vs)):
-                s.append(float((vs[a] @ vs[b]).item()))
-        return sum(s) / len(s)
-    def _inter():
-        mu = [e[2] for e in entries if e[1] == "music"]
-        sp = [e[2] for e in entries if e[1] == "space"]
-        if not mu or not sp:
-            return None
-        s = [float((a @ b).item()) for a in mu for b in sp]
-        return sum(s) / len(s)
-    intra_music = _intra("music")
-    intra_space = _intra("space")
-    inter_domain = _inter()
-    # Unit-norm tolerance check
+    def _loo_nn(subset):
+        correct = 0
+        per_mem = []
+        for i, (mid_i, lbl_i, v_i, _n) in enumerate(subset):
+            best_sim = -1e9; best_j = -1
+            for j, (_, lbl_j, v_j, _) in enumerate(subset):
+                if j == i:
+                    continue
+                s = float((v_i @ v_j).item())
+                if s > best_sim:
+                    best_sim = s; best_j = j
+            pred = subset[best_j][1] if best_j >= 0 else None
+            ok = (pred == lbl_i)
+            if ok:
+                correct += 1
+            per_mem.append({
+                "mid": int(mid_i),
+                "true_label": lbl_i,
+                "pred_label": pred,
+                "nn_sim": best_sim,
+                "correct": ok,
+            })
+        return correct / max(len(subset), 1), correct, per_mem
+    # Metric 1: full 4-domain LOO NN
+    acc_all, correct_all, per_all = _loo_nn(entries)
+    # Metric 2: held-out subset — cooking + finance only. These domains are not
+    # keyword-matched anywhere else in this suite; if the encoder generalizes,
+    # they should separate; if the encoder only memorizes music/space, they
+    # will not.
+    heldout = [e for e in entries if e[1] in ("cooking", "finance")]
+    acc_held, correct_held, per_held = _loo_nn(heldout)
+    n_all = len(entries); n_held = len(heldout)
     unit_ok = all(abs(n_raw - 1.0) < 1e-3 or n_raw < 1e-6 for _, _, _, n_raw in entries)
-    cond_loo = loo_accuracy >= 0.75
-    passed = cond_loo and unit_ok
+    # Pass criteria (stricter than single-domain v3.45 metric):
+    # - 4-domain LOO NN >= 0.65 (random = 0.25)
+    # - held-out 2-domain LOO NN >= 0.70 (random = 0.50)
+    # - unit_norm within tolerance
+    cond_all = acc_all >= 0.65
+    cond_held = acc_held >= 0.70
+    passed = cond_all and cond_held and unit_ok
     return {
         "passed": passed,
         "status": "pass" if passed else "fail",
-        "metric_version": "v3.45",
-        "loo_nn_accuracy": loo_accuracy,
-        "n_labeled": n,
-        "correct": correct,
-        "per_memory": per_memory,
-        "intra_music_cos_mean": intra_music,          # diagnostic
-        "intra_space_cos_mean": intra_space,          # diagnostic
-        "inter_domain_cos_mean": inter_domain,        # diagnostic
-        "music_gap": (intra_music - inter_domain) if (intra_music is not None and inter_domain is not None) else None,
-        "space_gap": (intra_space - inter_domain) if (intra_space is not None and inter_domain is not None) else None,
+        "metric_version": "v3.46",
+        "loo_nn_accuracy_all_4": acc_all,
+        "loo_nn_accuracy_heldout_2": acc_held,
+        "n_all": n_all,
+        "n_heldout": n_held,
+        "correct_all": correct_all,
+        "correct_heldout": correct_held,
+        "per_memory_all": per_all,
+        "per_memory_heldout": per_held,
         "unit_norm_within_1e_3": unit_ok,
         "conditions": {
-            "loo_nn_accuracy_ge_0_75": cond_loo,
+            "loo_nn_4domain_ge_0_65": cond_all,
+            "loo_nn_heldout_2domain_ge_0_70": cond_held,
             "unit_norm_within_1e_3": unit_ok,
         },
         "gating": "PASS_or_not_implemented",

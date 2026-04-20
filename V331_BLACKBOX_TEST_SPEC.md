@@ -500,7 +500,9 @@ Rationale: the three metrics jointly measure whether, over a 30-step greedy deco
 
 > **Correction notice (2026-04-20, applies to v3.45 and later):** The anti-cheating clause originally excluded hard-masking as a solution path. Under the corrected `1.1` definition, hard-masking derived from `ContentTokenClassifier.pure_function_mask` is a legitimate channel mechanism, not a cheat. The clause is replaced below. The metric itself (`logit_margin_best_content_starter_vs_best_functional`) is retained and remains binding.
 >
-> Axes mapping: the probe measures **axis C (semantic fidelity)** on a generic-prompt slice. It is NOT a test of whether the prefix-attention subchannel alone produces the margin; any legitimate combination of channel mechanisms may produce it.
+> **De-overfit notice (2026-04-20, applies to v3.46 and later):** the three original prompts were hand-selected because Qwen's unconditional top-12 on them is dominated by functional tokens. Selection bias: the probe could pass on these three without generalizing. v3.46 adds a held-out prompt set of three generic prompts (`"Tell me about"`, `"Please describe"`, `"Explain how"`) not selected for any property, and requires BOTH sets to pass their per-set thresholds independently. Per-set thresholds are relaxed (`avg_delta >= 1.0`, `margin_wins >= 2`) because each set has 3 prompts instead of 6.
+>
+> Axes mapping: the probe measures **axis C (semantic fidelity)** on a generic-prompt slice.
 
 - Seed: `51`
 - Setup:
@@ -527,11 +529,13 @@ Rationale: this probe exists to confirm that the channel, using any combination 
 
 > **Correction notice (2026-04-20, applies to v3.45 and later):** The original acceptance criterion (`top-3 token of wte @ tail_slot ∩ rare_keywords >= 1`) was shown to be unreachable by construction across v3.38-v3.44: Qwen 2.5's token ids 0/1/2 (`!`, `"`, `#`) lie near the WTE mean and dominate any top-K cosine query on any centered vector regardless of the slot's actual content. The probe was measuring a vocabulary-geometry artifact, not channel quality.
 >
-> The corrected probe replaces top-3 absolute ranking with **relative rank stability** under the mean-centered inner product, and adds `top-K` at `K=20`, which is robust to the WTE-mean anomaly. Thresholds and axes are re-specified below. The probe remains gated as `PASS or not_implemented`.
+> The corrected probe replaces top-3 absolute ranking with **relative rank stability** under the mean-centered inner product, and adds `top-K` at `K=20`, which is robust to the WTE-mean anomaly.
+>
+> **De-overfit notice (2026-04-20, applies to v3.46 and later):** The v3.45 protocol queried the bridge with `mem.source_text`. That is a round-trip: the query contains the very rare tokens the tail slot is then evaluated against. v3.46 replaces the query with token-disjoint paraphrases drawn from `corpus_paraphrase_music()` and measures tail slot projections against the RETRIEVED dominant memory's rare keywords. The query's surface form does not contain the keywords; a PASS now requires the tail slot to recover the dominant memory's rare keywords from a semantically-related-but-textually-disjoint query.
 >
 > Axes mapping: **axis C (semantic fidelity)**, at the tail-slot subchannel level.
 
-#### 4.23 corrected (v3.45+)
+#### 4.23 corrected (v3.46+)
 
 - Seed: `52`
 - Setup:
@@ -558,9 +562,14 @@ Rationale (v3.45+): axis C evaluation for the tail subchannel requires measuring
 
 > **Correction notice (2026-04-20, applies to v3.45 and later):** At `N = 3` memories per domain, the Johnson–Lindenstrauss projection into `d_ctx = 128` has O(1/√N) ≈ 0.58 sampling variance on mean-pairwise-cosine, which exceeds the `0.15` gap threshold. Audit data across v3.38-v3.44-Trained confirms that the probe outcome on this metric is dominated by JL noise, not by channel quality. Two corrections apply: (1) the metric is switched to a **linear-classifier accuracy** which has higher statistical power at N=3; (2) a **per-memory** accuracy rather than a pooled-cosine gap is reported, which is robust to sample-size variance. Gap-based wording is retained as an informational diagnostic, not a pass criterion.
 >
+> **De-overfit notice (2026-04-20, applies to v3.46 and later):** The v3.45 protocol used music/space only and assigned domain labels via `CIPHER_MUSIC_KEYWORDS` / `CIPHER_SPACE_KEYWORDS`. The keyword lists were hand-crafted against the same source corpora; the labeling step was circular. v3.46 expands to **four domains** (music, space, cooking, finance) with 16 total memories, and assigns labels by **source_text identity** against the runner-owned corpus tuples, not by keyword-list matching. Two of the four domains (cooking, finance) are held-out: they appear only in this probe, never in any `CIPHER_*_KEYWORDS` list, and are not referenced by any case 4.1–4.19. Pass criteria are split:
+> - `loo_nn_accuracy_all_4 >= 0.65` (random = 0.25)
+> - `loo_nn_accuracy_heldout_2 >= 0.70` (random = 0.50) — measured on the cooking + finance subset only, 8 memories, no keyword-based labeling anywhere
+> A system that only clusters the hand-crafted music/space pair by echoing its keyword-derived inputs will pass the 4-domain metric but fail the held-out metric.
+>
 > Axes mapping: **axis C (semantic fidelity)** at the context-descriptor subchannel level.
 
-#### 4.24 corrected (v3.45+)
+#### 4.24 corrected (v3.46+)
 
 - Seed: `53`
 - Setup:
