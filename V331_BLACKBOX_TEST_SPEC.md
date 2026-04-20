@@ -611,3 +611,57 @@ This external suite is not a unit test collection for individual functions. It i
 `v3.31` is judged against the full set above under the same no-mock / no-fallback / no-overfit / no-simplification policy.
 
 The `Cipher-System Structural Probes` subsuite is forward-looking: it defines the acceptance criteria for the v3.38+ structural upgrades derived from the cipher-system analysis (expressive volume, expressive vocabulary, invocation strategy, anti-collapse, expressive capacity, expressive form). Probes that target upgrades not yet landed emit `not_implemented` rather than fail, which keeps the suite usable as a progress tracker across versions.
+
+## 7. Reporting Discipline (mandatory)
+
+All human-authored audit reports, PR descriptions, commit messages, change summaries, and inter-version comparisons produced against this suite MUST adhere to the following reporting discipline. This section is not stylistic; it is a normative part of the audit contract.
+
+### 7.1 Banned language
+
+The following categories of language are prohibited in audit reports:
+
+- Celebratory framing: "wins", "胜利", "big improvement", "breakthrough", "major progress", "landmark", "historic best", "finally", "at last", "as expected", "as predicted".
+- Self-congratulation or reassurance: "honest", "honest progress", "honest failure", "good news / bad news", "the good side / the bad side", "silver lining", "promising direction", "encouraging sign".
+- Consolation or softening: "minor regression", "only slightly worse", "essentially the same", "negligible", "almost passes", "close to threshold", "one step away", "nearly green".
+- Hype / marketing language: "state of the art", "best-in-class", "industry-leading", "game-changing", "elegant", "beautiful", "clean solution".
+- Emotive adjectives attached to numbers: "strong", "weak", "healthy", "painful", "dramatic", "dramatic drop".
+
+Any report containing the above phrases (in English or Chinese, including direct synonyms) MUST be rewritten before being merged or published.
+
+### 7.2 Required report structure
+
+Every audit report MUST contain the following sections in this order, and only these sections, plus artifact links:
+
+1. **Run parameters**: SUT version, runner version, seed policy, device, elapsed seconds, exit code.
+2. **Per-case result table**: one row per case, columns = `case_id`, `name`, `passed` (true/false), `status` (`pass`/`fail`/`not_implemented`/`error`), `blocking` (true/false per Section 4-meta), `seed`, `elapsed_seconds_case` (if measured).
+3. **Count summary**: integer counts only, no narrative. Required counts: total, pass, fail, not_implemented, error, blocking_fail.
+4. **Delta vs. prior version**: a table listing every case whose `(passed, status)` tuple changed between the previous audited version and the current one. Columns: `case_id`, `prior_passed`, `current_passed`, `prior_status`, `current_status`. Unchanged cases are omitted.
+5. **Per-failing-case evidence**: for every case with `passed=false`, emit a raw evidence block containing (a) the measured metric(s) named in the pass criterion of Section 4, (b) the threshold, (c) the gap. No causal interpretation is permitted in this section.
+6. **Mechanism notes (optional, non-normative)**: if the report author wishes to record a mechanism hypothesis linking a regression to a code change, it goes here. Every entry MUST be expressed as a falsifiable statement with (i) the named code element, (ii) the observed behavior, (iii) a testable prediction. No value judgments.
+7. **Artifact links**: relative paths to `report.json`, `report.md`, `runner.log`, and any supporting files.
+
+### 7.3 Writing rules
+
+- State results as measurements. Example of compliant wording: "case 4.13 `save_load_consistency` failed; output_a and output_b diverge after the shared prefix of length 19 tokens." Example of non-compliant wording: "4.13 unfortunately regressed — an honest consequence of our improvements."
+- Do not attribute intent to the system. "The bridge learned to ..." is banned; "`ContentSemanticTailHead.forward` produced slot[1] with cosine X to the rare keyword centroid" is required.
+- Do not use comparative adjectives where a number would do. "Marginal" must be replaced by the numeric margin. "Significantly better" must be replaced by the delta.
+- Do not hedge numerical FAILs with qualifiers. "FAIL at 0.278 vs threshold 0.20" is required; "narrowly FAIL" is banned.
+- Do not characterize absence of PASS as progress. If the count decreased, it decreased. Report the count.
+- Do not announce category winners. There are no winners in an audit. There are passing cases, failing cases, and measured numbers.
+
+### 7.4 Counting conventions
+
+- `blocking_fail` is a hard fail of any original case (4.1 – 4.19) or any `hard_PASS` probe (4.20 – 4.22, 4.25). `not_implemented` never counts as blocking. A non-blocking probe FAIL counts as a FAIL, not as a softer state.
+- Version-to-version comparison tables MUST include all versions that have recorded artifacts in the repository; partial comparisons are not permitted.
+- The total-pass line MUST be expressed as the raw integer over the total; no percentages, no "rate of improvement" calculations.
+
+### 7.5 Error handling in reports
+
+- When a case raises an exception, `status = "error"` is distinct from `status = "fail"`. The error traceback goes into the per-case evidence block verbatim. No paraphrase.
+- When a probe reports `not_implemented`, the report MUST name the missing API literally (attribute name, method name, Cfg flag, or dataclass field), not describe it.
+
+### 7.6 Enforcement
+
+- A report violating Section 7.1 or 7.3 is itself invalid; the PR containing it is not mergeable until the report is rewritten.
+- The audit runner and its output JSON are not subject to these rules (they are machine output). Only human-authored summaries, commit messages, PR descriptions, and analysis documents are.
+- This section applies retroactively to all future audits starting at v3.40 and forward. Prior reports are not required to be rewritten, but may be rewritten voluntarily.
