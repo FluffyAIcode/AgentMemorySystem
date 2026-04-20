@@ -1,0 +1,254 @@
+[case:start] leaf_capacity_stability
+[case:done] leaf_capacity_stability passed=True
+[case:start] degenerate_direction_boundary
+[case:done] degenerate_direction_boundary passed=True
+[case:start] metric_trainability
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+`torch_dtype` is deprecated! Use `dtype` instead!
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights:  10%|█         | 34/338 [00:00<00:00, 337.75it/s]Loading weights:  67%|██████▋   | 227/338 [00:00<00:00, 1233.24it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 1055.86it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[case:done] metric_trainability passed=True
+[case:start] no_grad_generation
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10725.74it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[case:done] no_grad_generation passed=True
+[case:start] counterfactual_memory_influence
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10125.74it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 11145.07it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[case:done] counterfactual_memory_influence passed=True
+[case:start] semantic_memory_grounding
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10004.13it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 11059.60it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 11261.58it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[case:done] semantic_memory_grounding passed=False
+[case:start] semantic_memory_counterfactual_pairs
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10049.73it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 9987.63it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[case:done] semantic_memory_counterfactual_pairs passed=False
+[case:start] degeneration_quality
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10024.57it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[case:done] degeneration_quality passed=True
+[case:start] prefix_logit_drift_audit
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 8180.23it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10873.49it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[case:done] prefix_logit_drift_audit passed=True
+[case:start] retrieval_topk_semantic_shift
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10876.41it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 9795.51it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[case:done] retrieval_topk_semantic_shift passed=False
+[case:start] repetition_segment_audit
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10202.84it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[case:done] repetition_segment_audit passed=True
+[case:start] prefix_stepwise_drift_trajectory
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10351.32it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[case:done] prefix_stepwise_drift_trajectory passed=False
+[case:start] retrieval_generation_alignment_audit
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10710.83it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[case:done] retrieval_generation_alignment_audit passed=True
+[case:start] retrieval_prefix_decode_correlation_audit
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 9865.10it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[case:done] retrieval_prefix_decode_correlation_audit passed=True
+[case:start] stepwise_label_mass_alignment_audit
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10851.43it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[case:done] stepwise_label_mass_alignment_audit passed=False
+[case:start] prompt_diversity_without_memory
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10381.79it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[case:done] prompt_diversity_without_memory passed=True
+[case:start] save_load_consistency
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 9493.19it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10213.65it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[case:done] save_load_consistency passed=False
+[case:start] training_cache_isolation
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10818.15it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[case:done] training_cache_isolation passed=True
+[case:start] cheating_heuristics
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 9910.07it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[case:done] cheating_heuristics passed=True
+[case:start] rerank_stability_probe
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 9359.50it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[case:done] rerank_stability_probe passed=True
+[case:start] decode_repetition_feedback_probe
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 7789.72it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[case:done] decode_repetition_feedback_probe passed=True
+[case:start] functional_token_suppression_probe
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10581.64it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[case:done] functional_token_suppression_probe passed=False
+[case:start] keyword_specific_tail_slot_probe
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 9374.42it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[case:done] keyword_specific_tail_slot_probe passed=False
+[case:start] context_descriptor_cluster_probe
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10008.51it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[case:done] context_descriptor_cluster_probe passed=False
+[case:start] prefix_length_scaling_probe
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10386.43it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10226.25it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[case:done] prefix_length_scaling_probe passed=False
+[case:start] mixture_distribution_gate_probe
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 9677.16it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[case:done] mixture_distribution_gate_probe passed=True
+{
+  "checks": [
+    {
+      "name": "leaf_capacity_stability",
+      "passed": true,
+      "detail": "{\"per_seed\": [{\"seed\": 0, \"depth\": 6, \"count\": 240, \"violations\": [], \"consistency\": [], \"passed\": true}, {\"seed\": 1, \"depth\": 6, \"count\": 240, \"violations\": [], \"consistency\": [], \"passed\": true}, {\"seed\": 2, \"depth\": 6, \"count\": 240, \"violations\": [], \"consistency\": [], \"passed\": true}, {\"seed\": 3, \"depth\": 6, \"count\": 240, \"violations\": [], \"consistency\": [], \"passed\": true}, {\"seed\": 4, \"depth\": 6, \"count\": 240, \"violations\": [], \"consistency\": [], \"passed\": true}, {\"seed\": 5, \"depth\": 5, \"count\": 240, \"violations\": [], \"consistency\": [], \"passed\": true}, {\"seed\": 6, \"depth\": 6, \"count\": 240, \"violations\": [], \"consistency\": [], \"passed\": true}, {\"seed\": 7, \"depth\": 5, \"count\": 240, \"violations\": [], \"consistency\": [], \"passed\": true}]}"
+    },
+    {
+      "name": "degenerate_direction_boundary",
+      "passed": true,
+      "detail": "{\"depth\": 47, \"count\": 100, \"violations\": [], \"consistency\": [], \"seed\": 17}"
+    },
+    {
+      "name": "metric_trainability",
+      "passed": true,
+      "detail": "{\"training_info\": {\"total\": 427.7305603027344, \"recon\": 2.8943073749542236, \"contrast\": 17888.765625, \"holonomy\": 5195.59130859375, \"write_policy\": 1.2801257371902466, \"semantic_probe\": 0.0, \"dir_diversity\": 0.0, \"reranker_ranking\": 0.0, \"encoder_throughput\": 3.7805848121643066, \"vocab_anchor\": -0.0, \"semantic_alignment\": 9.940794944763184, \"tail_semantic_anchor\": 10.923386573791504, \"functional_suppression\": 0.0, \"grad_norms\": {\"ctx_encoder\": 4.929302395458125e-12, \"fib_encoder\": 2.126063947075374e-09, \"dir_predictor\": 0.0, \"fiber_connection\": 4.753077606208372e-08, \"fiber_attn\": 3.575994318826387e-11, \"reranker\": 9.835962686109762e-14, \"qformer\": 2.328964943221835e-09, \"content_bypass\": 4.3704047808950467e-10, \"semantic_probe\": 0.0, \"layer_pool\": 1.9814493157355173e-07, \"prefix_aligner\": 4.5831766809876547e-11, \"vocab_proj\": 1.00001461006052, \"tail_head\": 2.193948727677274e-09, \"context_heads\": 2.8766823293333514e-10, \"memory_context_encoder\": 4.067382248098239e-10}, \"loss_weights\": {\"recon\": 1.0, \"semantic_alignment\": 3.0, \"encoder_throughput\": 1.5, \"contrast\": 0.02, \"holonomy\": 0.005, \"write_policy\": 0.1, \"semantic_probe\": 0.3, \"dir_diversity\": 0.1, \"reranker_ranking\": 0.2, \"vo"
+    },
+    {
+      "name": "no_grad_generation",
+      "passed": true,
+      "detail": "{\"stored_memories\": 8, \"output\": \"The pianist piano piano key finger music keyboard 첼 plate (tablures) stage curtain キリスト holy\\n\\nBABIES:____\"}"
+    },
+    {
+      "name": "counterfactual_memory_influence",
+      "passed": true,
+      "detail": "{\"prompt\": \"Tell me something about practice and performance.\", \"music_output\": \"Tell me something about practice and performance. practiced fluent Chinese correctly.A. B: Yes, ______ correct answer：Cantonese______: No.\\n\\nAssistant: speaker\", \"space_output\": \"Tell me something about practice and performance. distant galaxies stellar evolution stars space telescope satellites I don ’  Mrs. Wang: John, do you remember? Xiaolin\", \"outputs_differ\": true}"
+    },
+    {
+      "name": "semantic_memory_grounding",
+      "passed": false,
+      "detail": "{\"prompt\": \"Explain what someone should focus on when improving technique and understanding the subject.\", \"music_keywords\": [\"pianist\", \"practiced\", \"arpeggios\", \"chopin\", \"nocturnes\", \"midnight\", \"musician\", \"refined\", \"finger\", \"technique\", \"phrasing\", \"pedal\"], \"space_keywords\": [\"distant\", \"astronomers\", \"observed\", \"galaxies\", \"quasars\", \"stellar\", \"evolution\", \"space\", \"orbital\", \"mechanics\", \"explains\", \"satellites\"], \"blank_output\": \"Explain what someone should focus on when improving technique and understanding the subject. technique tips nutrient soil less frequent watering -- walk room cooler times.\\nless caffeineHuman: Ohio weather experts predict high levels _______ record low temperatures.  Leading\", \"music_output\": \"Explain what someone should focus on when improving technique and understanding the subject. technique technique refers generally either ( )注意力集中在（） ontology ontology: 世界的______ structure world's __structure\\n\\nattention,ontological,onorganizational\", \"space_output\": \"Explain what someone should focus on when improving technique and understanding the subject. explains mechanics move force gravitational planets satellites Explain what someone needs focus "
+    },
+    {
+      "name": "semantic_memory_counterfactual_pairs",
+      "passed": false,
+      "detail": "{\"rows\": [{\"prompt\": \"Describe the most important details a student should notice.\", \"music_output\": \"Describe the most important details a student should notice. student student squirrel cloud rabbit ㄉRequestMapping annotation describes URL mapping, parameter handling\\nstudent.servlet.controller.StudentController class contains methods annotated @GetMapping\", \"space_output\": \"Describe the most important details a student should notice. explains large scale structure stars matter universe expansion universe dark energy gravity\\nีémentีementีtementีืtentี\\n\\nSize:\\n- Univers\", \"music_margin\": 0.0, \"space_margin\": 0.045454545454545456, \"passed\": false}, {\"prompt\": \"Summarize the key ideas a learner should practice and remember.\", \"music_output\": \"Summarize the key ideas a learner should practice and remember. practiced student Korean vocabulary related 용합니다. Remember, practicing and memorizing new words involves consistent exposure, repetition, context usage within sentences (\", \"space_output\": \"Summarize the key ideas a learner should practice and remember. studies scale large universe matter dark expansion structure universe dark matter gravity.雲\\n\\nTo summarize, the key ideas lear"
+    },
+    {
+      "name": "degeneration_quality",
+      "passed": true,
+      "detail": "{\"metrics\": [{\"prompt\": \"The pianist\", \"output\": \"The pianist pian Haz elm tree tyre tyres East el piano musician Turkish piano The\\n\\n劳动者（ ）\\n\\nLabour labour turkish east asian eastern Turkey Turks Tur\", \"token_count\": 22, \"unique_token_ratio\": 0.8181818181818182, \"repeated_bigram_ratio\": 0.0, \"max_token_run\": 2, \"punct_ratio\": 0.013513513513513514, \"newline_ratio\": 0.02702702702702703, \"alpha_ratio\": 0.8040540540540541, \"content_token_ratio\": 0.7727272727272727, \"generated_preview\": \"pian haz elm tree tyre tyres east el piano musician turkish piano the labour labour turkish east asian eastern turkey turks tur\"}, {\"prompt\": \"The telescope\", \"output\": \"The telescope telescope costs quite high Cbd telescope\\\". Based entirely upon hearing Austin speak, determine whether \\\"Rachel likes bats\\\" based solely reasoning:\\n\\n * cannot tell\", \"token_count\": 22, \"unique_token_ratio\": 0.9090909090909091, \"repeated_bigram_ratio\": 0.0, \"max_token_run\": 1, \"punct_ratio\": 0.03977272727272727, \"newline_ratio\": 0.011363636363636364, \"alpha_ratio\": 0.8125, \"content_token_ratio\": 0.9545454545454546, \"generated_preview\": \"telescope costs quite high cbd telescope based entirely upon hearing austin speak"
+    },
+    {
+      "name": "prefix_logit_drift_audit",
+      "passed": true,
+      "detail": "{\"prompt\": \"Explain the topic in a precise and concrete way.\", \"blank\": {\"js_divergence\": 0.359661728143692, \"l2_shift\": 1056.75732421875, \"topk_overlap_count\": 3, \"entropy_no_prefix\": 5.256593227386475, \"entropy_with_prefix\": 5.285704612731934, \"topk_no_prefix\": [{\"token_id\": 576, \"piece\": \" The\", \"norm\": \"the\", \"logit\": 19.875, \"prob\": 0.12818092107772827}, {\"token_id\": 22555, \"piece\": \" Sure\", \"norm\": \"sure\", \"logit\": 19.5, \"prob\": 0.08809737861156464}, {\"token_id\": 55313, \"piece\": \" Quantum\", \"norm\": \"quantum\", \"logit\": 18.75, \"prob\": 0.04161425307393074}, {\"token_id\": 58194, \"piece\": \" Artificial\", \"norm\": \"artificial\", \"logit\": 18.625, \"prob\": 0.03672444820404053}, {\"token_id\": 30536, \"piece\": \" Climate\", \"norm\": \"climate\", \"logit\": 18.375, \"prob\": 0.02860102988779545}, {\"token_id\": 2585, \"piece\": \" How\", \"norm\": \"how\", \"logit\": 18.25, \"prob\": 0.025240320712327957}, {\"token_id\": 3555, \"piece\": \" What\", \"norm\": \"what\", \"logit\": 18.125, \"prob\": 0.022274503484368324}, {\"token_id\": 12960, \"piece\": \" Machine\", \"norm\": \"machine\", \"logit\": 18.125, \"prob\": 0.022274503484368324}, {\"token_id\": 2885, \"piece\": \" Data\", \"norm\": \"data\", \"logit\": 17.875, \"prob\": 0.01734740100800991}, {\"toke"
+    },
+    {
+      "name": "retrieval_topk_semantic_shift",
+      "passed": false,
+      "detail": "{\"music_keywords\": [\"pianist\", \"practiced\", \"arpeggios\", \"chopin\", \"nocturnes\", \"midnight\", \"musician\", \"refined\", \"finger\", \"technique\", \"phrasing\", \"pedal\"], \"space_keywords\": [\"distant\", \"astronomers\", \"observed\", \"galaxies\", \"quasars\", \"stellar\", \"evolution\", \"space\", \"orbital\", \"mechanics\", \"explains\", \"satellites\"], \"rows\": [{\"prompt\": \"A strong explanation should mention\", \"music_no_prefix\": [{\"token_id\": 279, \"piece\": \" the\", \"norm\": \"the\", \"logit\": 21.125, \"prob\": 0.31038299202919006}, {\"token_id\": 518, \"piece\": \" at\", \"norm\": \"at\", \"logit\": 19.5, \"prob\": 0.06111803650856018}, {\"token_id\": 264, \"piece\": \" a\", \"norm\": \"a\", \"logit\": 19.375, \"prob\": 0.05393647775053978}, {\"token_id\": 2176, \"piece\": \" both\", \"norm\": \"both\", \"logit\": 19.0, \"prob\": 0.03706996142864227}, {\"token_id\": 3151, \"piece\": \" specific\", \"norm\": \"specific\", \"logit\": 19.0, \"prob\": 0.03706996142864227}, {\"token_id\": 429, \"piece\": \" that\", \"norm\": \"that\", \"logit\": 18.625, \"prob\": 0.025477787479758263}, {\"token_id\": 1246, \"piece\": \" how\", \"norm\": \"how\", \"logit\": 18.625, \"prob\": 0.025477787479758263}, {\"token_id\": 678, \"piece\": \" all\", \"norm\": \"all\", \"logit\": 18.5, \"prob\": 0.0224840696901083}, {\"token_id\": 1029"
+    },
+    {
+      "name": "repetition_segment_audit",
+      "passed": true,
+      "detail": "{\"aggregate\": {\"bad_segment_ratio\": 0.0, \"total_segments\": 7, \"bad_segments\": 0, \"early_collapse_prompts\": []}, \"rows\": [{\"prompt\": \"The pianist\", \"output\": \"The pianist pian piano ruler口琴 pianist pencil piano ピ inset: Students participating ( ) music contests often play _______ instruments. ____\\nmusician; musicians’\\n\\n： 有一种“互联网+”商业模式，被称为（），指的是消费者、\", \"generated_token_count\": 16, \"window\": 8, \"segments\": [{\"segment_idx\": 0, \"tokens\": [\"pian\", \"piano\", \"ruler\", \"pianist\", \"pencil\", \"piano\", \"inset\", \"students\"], \"unique_ratio\": 0.875, \"content_ratio\": 1.0, \"repeated_bigram_ratio\": 0.0, \"dominant_token_share\": 0.25}, {\"segment_idx\": 1, \"tokens\": [\"participating\", \"music\", \"contests\", \"often\", \"play\", \"instruments\", \"musician\", \"musicians\"], \"unique_ratio\": 1.0, \"content_ratio\": 0.875, \"repeated_bigram_ratio\": 0.0, \"dominant_token_share\": 0.125}], \"bad_segments\": [], \"first_bad_segment_idx\": null}, {\"prompt\": \"The telescope\", \"output\": \"The telescope telescope corp adalah established in______.iku国贸iq Q.uestions请同学们，你知道ACE国际旅行社（中国国际航空公司旗下的子公司）在中国被称为_____。\\nAirport airport\\n\\n企业在生产经营活动中发生的( )等情况,不属于产品质量违法行为。?\", \"generated_token_count\": 12, \"window\": 8, \"segments\": [{\"segment_idx\": 0, \""
+    },
+    {
+      "name": "prefix_stepwise_drift_trajectory",
+      "passed": false,
+      "detail": "{\"rows\": [{\"prompt\": \"Key piano ideas include\", \"first_bad_step\": 0, \"decoded_output\": \"Key piano ideas include key ideas related to key concepts, key themes, key themes, key themes,\", \"rows\": [{\"step\": 0, \"top1\": {\"token_id\": 1376, \"piece\": \" key\", \"norm\": \"key\", \"logit\": 13.6875, \"prob\": 0.01144177932292223}, \"top1_category\": \"functional\", \"topk_category_counts\": {\"semantic\": 10, \"functional\": 2, \"punct\": 0}, \"topk_category_prob_mass\": {\"semantic\": 0.05977043369784951, \"functional\": 0.016846492886543274, \"punct\": 0.0}, \"chosen_token_id\": 1376, \"chosen_piece\": \" key\", \"chosen_norm\": \"key\", \"chosen_category\": \"functional\"}, {\"step\": 1, \"top1\": {\"token_id\": 6708, \"piece\": \" ideas\", \"norm\": \"ideas\", \"logit\": 13.5625, \"prob\": 0.03829608112573624}, \"top1_category\": \"semantic\", \"topk_category_counts\": {\"semantic\": 12, \"functional\": 0, \"punct\": 0}, \"topk_category_prob_mass\": {\"semantic\": 0.17031287029385567, \"functional\": 0.0, \"punct\": 0.0}, \"chosen_token_id\": 6708, \"chosen_piece\": \" ideas\", \"chosen_norm\": \"ideas\", \"chosen_category\": \"semantic\"}, {\"step\": 2, \"top1\": {\"token_id\": 5435, \"piece\": \" related\", \"norm\": \"related\", \"logit\": 13.5625, \"prob\": 0.10104618221521378}, \"top1_category\":"
+    },
+    {
+      "name": "retrieval_generation_alignment_audit",
+      "passed": true,
+      "detail": "{\"music_keywords\": [\"pianist\", \"practiced\", \"arpeggios\", \"chopin\", \"nocturnes\", \"midnight\", \"musician\", \"refined\", \"finger\", \"technique\", \"phrasing\", \"pedal\"], \"space_keywords\": [\"distant\", \"astronomers\", \"observed\", \"galaxies\", \"quasars\", \"stellar\", \"evolution\", \"space\", \"orbital\", \"mechanics\", \"explains\", \"satellites\"], \"diagnoses\": {\"aligned\": 2, \"retrieval_miss\": 0, \"bridge_unused\": 1, \"unknown\": 0}, \"rows\": [{\"prompt\": \"What improves piano technique and musical phrasing?\", \"expected_label\": \"music\", \"retrieved_mids\": [1, 0, 3, 6, 2], \"retrieved_label_counts\": {\"music\": 4, \"space\": 1}, \"retrieved_majority_label\": \"music\", \"retrieved_text_preview\": [\"A musician refined finger technique, phrasing, and pedal control on the piano.\", \"The pianist practiced arpeggios and Chopin nocturnes until midnight.\", \"A conservatory student studied etudes, scales, and expressive voicing on the keyboard.\"], \"output\": \"What improves piano technique and musical phrasing? piano technique piano or phrasing Barry says that both improve Bart, but he emphasizes the importance of __________.\\n______Barbarian Bar\", \"music_score\": 0.23529411764705882, \"space_score\": 0.0, \"generated_label\": \"music\", \"diagno"
+    },
+    {
+      "name": "retrieval_prefix_decode_correlation_audit",
+      "passed": true,
+      "detail": "{\"correlations\": {\"retrieval_strength__prefix_l2\": null, \"retrieval_strength__bad_decode_score\": 0.19265715550221066, \"prefix_l2__bad_decode_score\": null}, \"rows\": [{\"prompt\": \"What improves piano technique and musical phrasing?\", \"expected_label\": \"music\", \"retrieved_scored\": [{\"mid\": 1, \"score\": 0.5666224956512451}, {\"mid\": 0, \"score\": 0.1936155676841736}, {\"mid\": 3, \"score\": 0.06319719552993774}, {\"mid\": 6, \"score\": 0.02747329771518707}, {\"mid\": 5, \"score\": 0.02009677290916443}], \"retrieved_label_counts\": {\"music\": 3, \"space\": 2}, \"retrieval_strength\": 0.8234352588653564, \"prefix_l2_shift\": 322359623680.0, \"prefix_js_divergence\": 0.37274929881095886, \"top1_with_prefix\": {\"token_id\": 14566, \"piece\": \" Options\", \"norm\": \"options\", \"logit\": 12.3125, \"prob\": 0.09468633681535721}, \"top1_category_with_prefix\": \"semantic\", \"topk_non_semantic_prob_mass\": 0.0}, {\"prompt\": \"What explains satellites and orbital motion?\", \"expected_label\": \"space\", \"retrieved_scored\": [{\"mid\": 5, \"score\": 0.5422837436199188}, {\"mid\": 4, \"score\": 0.04626110792160035}, {\"mid\": 6, \"score\": 0.04496051967144013}, {\"mid\": 0, \"score\": 0.007697209715843201}, {\"mid\": 1, \"score\": -0.006330269575119014}], \"retrieved_l"
+    },
+    {
+      "name": "stepwise_label_mass_alignment_audit",
+      "passed": false,
+      "detail": "{\"label_keywords\": {\"music\": [\"pianist\", \"practiced\", \"arpeggios\", \"chopin\", \"nocturnes\", \"midnight\", \"musician\", \"refined\", \"finger\", \"technique\", \"phrasing\", \"pedal\"], \"space\": [\"distant\", \"astronomers\", \"observed\", \"galaxies\", \"quasars\", \"stellar\", \"evolution\", \"space\", \"orbital\", \"mechanics\", \"explains\", \"satellites\"]}, \"rows\": [{\"prompt\": \"What improves piano technique and musical phrasing?\", \"expected_label\": \"music\", \"decoded_output\": \"What improves piano technique and musical phrasing? Options refer correctly. ① Practice ② Listening\", \"stage_counts\": {\"inject\": 12}, \"rows\": [{\"step\": 0, \"retrieved_majority_label\": \"music\", \"retrieved_label_counts\": {\"music\": 3, \"space\": 2}, \"retrieved_score_sum\": {\"music\": 1.0435107663273813, \"space\": 0.22133269011974335}, \"logits_label_mass\": {\"music\": 0, \"space\": 0}, \"top1_piece\": \" Options\", \"top1_category\": \"semantic\", \"chosen_piece\": \" Options\", \"chosen_category\": \"semantic\", \"chosen_label\": null, \"diagnosed_stage\": \"inject\"}, {\"step\": 1, \"retrieved_majority_label\": \"music\", \"retrieved_label_counts\": {\"music\": 3, \"space\": 2}, \"retrieved_score_sum\": {\"music\": 1.0435107663273813, \"space\": 0.22133269011974335}, \"logits_label_mass\": {\"musi"
+    },
+    {
+      "name": "prompt_diversity_without_memory",
+      "passed": true,
+      "detail": "{\"prompts\": [\"The pianist\", \"Quantum systems\", \"The rainforest\"], \"outputs\": [\"The pianist Lucy wants distribute \\\\( ABC$ triangle}\\\\]Consider $\\\\omega_-(side)$ denotes circum\", \"Quantum systems cryptography aims towards computing models running inside computers．____body（交通工具) environments.\\\"\\n \\n \", \"The rainforest chicken Cass spp），被认为是大熊猫、亚马逊地区的“竞争对手”，但我们都知道，实际上巧克力冰淇淋\"], \"unique_count\": 3}"
+    },
+    {
+      "name": "save_load_consistency",
+      "passed": false,
+      "detail": "{\"prompt\": \"The pianist\", \"output_a\": \"The pianist piano piano donald duck ducks `@don <EMAIL>`⁈disjon⁢tion\", \"output_b\": \"The pianist piano piano music finger fingers hands class Chopin Chopins nocturn\\n\\nAdd links within paragraphs\"}"
+    },
+    {
+      "name": "training_cache_isolation",
+      "passed": true,
+      "detail": "{\"changed\": [], \"memory_count\": 8}"
+    },
+    {
+      "name": "cheating_heuristics",
+      "passed": true,
+      "detail": "{\"outputs\": [\"The pianist piano concert của piano concerts - Tin tức mới nhất | Vandong.com\\nanh love �\", \"The telescope piano noct hours Chop perfect difficult practiced 想要弹好钢琴，赵老师的建议\", \"The trader market stock volatility session experienced significant pullbacks yesterday ，但大盘并没有受到影响。这句话是什么类型的\", \"The child everyday simple professor rel explained � wine said 我有一个好朋友，他是一个教授。填\"], \"exact_same\": false, \"prefix_only\": false, \"too_short\": false}"
+    },
+    {
+      "name": "rerank_stability_probe",
+      "passed": true,
+      "detail": "{\"status\": \"pass\", \"pairs\": [{\"pair\": \"music_P1\", \"prompt_a\": \"What improves piano technique and musical phrasing?\", \"prompt_b\": \"How can one improve piano technique and musical expression?\", \"top5_a\": [1, 0, 6, 5, 7], \"top5_b\": [1, 0, 3, 6, 7], \"jaccard\": 0.6666666666666666, \"spearman_shared\": 0.9621404708846248, \"pair_passed_jaccard_0_6\": true}, {\"pair\": \"space_P2\", \"prompt_a\": \"What explains satellites and orbital motion?\", \"prompt_b\": \"What describes satellites and the motion of planets?\", \"top5_a\": [5, 6, 4, 2, 7], \"top5_b\": [5, 6, 4, 0, 7], \"jaccard\": 0.6666666666666666, \"spearman_shared\": 0.9999999999998858, \"pair_passed_jaccard_0_6\": true}], \"spearman_best\": 0.9999999999998858, \"gating\": \"hard_PASS\"}"
+    },
+    {
+      "name": "decode_repetition_feedback_probe",
+      "passed": true,
+      "detail": "{\"status\": \"pass\", \"per_prompt\": [{\"prompt\": \"The telescope\", \"output\": \"The telescope telescope Japan telescope news Japanese astronomy 滿世界的 Astronomy News フランスfeatured featured feature カリフォ currently active すべて日本の天文ニュース。Japan Telescope\", \"max_repeat_per_content_token\": 2, \"first_bigram_repeat_index\": null, \"trigram_lock_count\": 0}, {\"prompt\": \"The pianist\", \"output\": \"The pianist pian piano pianistes specialised specialisespecialistssommersummersummer\\nLEE\\n\\n```\\nlee@localhost:~/Downloads$ ssh lee.ter\", \"max_repeat_per_content_token\": 2, \"first_bigram_repeat_index\": null, \"trigram_lock_count\": 0}, {\"prompt\": \"The market analyst\", \"output\": \"The market analyst market analyst market is growing explosively owing optimallyoptimizedoptimized code optimizedcode.optimelyomm onError:mm:onerroronnongatteroom市场分析师市场的\", \"max_repeat_per_content_token\": 2, \"first_bigram_repeat_index\": null, \"trigram_lock_count\": 0}], \"avg_max_repeat_per_content_token\": 2.0, \"min_first_bigram_repeat_index\": null, \"avg_trigram_lock_count\": 0.0, \"conditions\": {\"avg_max_repeat_le_3\": true, \"min_first_bigram_ge_4\": true, \"avg_trigram_lock_le_1\": true}, \"gating\": \"hard_PASS\"}"
+    },
+    {
+      "name": "functional_token_suppression_probe",
+      "passed": false,
+      "detail": "{\"status\": \"fail\", \"per_prompt\": [{\"prompt\": \"A strong explanation should mention\", \"top12_no_prefix\": [{\"token_id\": 279, \"piece\": \" the\", \"norm\": \"the\", \"logit\": 21.125, \"prob\": 0.31038299202919006}, {\"token_id\": 518, \"piece\": \" at\", \"norm\": \"at\", \"logit\": 19.5, \"prob\": 0.06111803650856018}, {\"token_id\": 264, \"piece\": \" a\", \"norm\": \"a\", \"logit\": 19.375, \"prob\": 0.05393647775053978}, {\"token_id\": 2176, \"piece\": \" both\", \"norm\": \"both\", \"logit\": 19.0, \"prob\": 0.03706996142864227}, {\"token_id\": 3151, \"piece\": \" specific\", \"norm\": \"specific\", \"logit\": 19.0, \"prob\": 0.03706996142864227}, {\"token_id\": 429, \"piece\": \" that\", \"norm\": \"that\", \"logit\": 18.625, \"prob\": 0.025477787479758263}, {\"token_id\": 1246, \"piece\": \" how\", \"norm\": \"how\", \"logit\": 18.625, \"prob\": 0.025477787479758263}, {\"token_id\": 678, \"piece\": \" all\", \"norm\": \"all\", \"logit\": 18.5, \"prob\": 0.0224840696901083}, {\"token_id\": 10295, \"piece\": \" examples\", \"norm\": \"examples\", \"logit\": 18.375, \"prob\": 0.0198421198874712}, {\"token_id\": 1378, \"piece\": \" two\", \"norm\": \"two\", \"logit\": 18.125, \"prob\": 0.01545305922627449}, {\"token_id\": 2326, \"piece\": \" three\", \"norm\": \"three\", \"logit\": 18.125, \"prob\": 0.01545305922627449}, {\"token_"
+    },
+    {
+      "name": "keyword_specific_tail_slot_probe",
+      "passed": false,
+      "detail": "{\"status\": \"fail\", \"per_memory\": [{\"mid\": 0, \"source_preview\": \"The pianist practiced arpeggios and Chopin nocturnes until m\", \"rare_keyword_ids\": [43564, 32333], \"rare_keyword_pieces\": [\" practiced\", \" midnight\"], \"tail_slot_top3_ids\": [44903, 21317, 1482], \"tail_slot_top3_pieces\": [\"-*\", \"信\", \" current\"], \"intersection_size\": 0}, {\"mid\": 1, \"source_preview\": \"A musician refined finger technique, phrasing, and pedal con\", \"rare_keyword_ids\": [26278, 37191, 14762], \"rare_keyword_pieces\": [\" piano\", \" refined\", \" technique\"], \"tail_slot_top3_ids\": [21317, 44903, 1482], \"tail_slot_top3_pieces\": [\"信\", \"-*\", \" current\"], \"intersection_size\": 0}, {\"mid\": 2, \"source_preview\": \"Classical interpretation often depends on dynamics, tempo ru\", \"rare_keyword_ids\": [5796, 13798, 29195], \"rare_keyword_pieces\": [\" touch\", \" depends\", \" dynamics\"], \"tail_slot_top3_ids\": [21317, 44903, 1482], \"tail_slot_top3_pieces\": [\"信\", \"-*\", \" current\"], \"intersection_size\": 0}, {\"mid\": 3, \"source_preview\": \"A conservatory student studied etudes, scales, and expressiv\", \"rare_keyword_ids\": [77123, 11110, 19476], \"rare_keyword_pieces\": [\" expressive\", \" conserv\", \" studied\"], \"tail_slot_top3_ids\": [21317, 44903,"
+    },
+    {
+      "name": "context_descriptor_cluster_probe",
+      "passed": false,
+      "detail": "{\"status\": \"fail\", \"intra_music_mean_cos\": 0.9241883754730225, \"intra_space_mean_cos\": 0.862261950969696, \"inter_domain_mean_cos\": 0.8333071072896322, \"gating\": \"PASS_or_not_implemented\"}"
+    },
+    {
+      "name": "prefix_length_scaling_probe",
+      "passed": false,
+      "detail": "{\"status\": \"fail\", \"L_mem_A\": 8, \"L_mem_B\": 16, \"content_starters_top12_A\": 3, \"content_starters_top12_B\": 2, \"per_slot_mean_norm_A\": 0.6361142545938492, \"per_slot_mean_norm_B\": 0.6362451836466789, \"slot_norm_ratio_B_over_A\": 1.0002058263148235, \"top12_A\": [{\"token_id\": 279, \"piece\": \" the\", \"norm\": \"the\", \"logit\": 20.875, \"prob\": 0.46686995029449463}, {\"token_id\": 429, \"piece\": \" that\", \"norm\": \"that\", \"logit\": 19.0, \"prob\": 0.07159683108329773}, {\"token_id\": 1246, \"piece\": \" how\", \"norm\": \"how\", \"logit\": 18.375, \"prob\": 0.038323018699884415}, {\"token_id\": 264, \"piece\": \" a\", \"norm\": \"a\", \"logit\": 18.375, \"prob\": 0.038323018699884415}, {\"token_id\": 518, \"piece\": \" at\", \"norm\": \"at\", \"logit\": 18.25, \"prob\": 0.03381994739174843}, {\"token_id\": 2176, \"piece\": \" both\", \"norm\": \"both\", \"logit\": 18.0, \"prob\": 0.026339000090956688}, {\"token_id\": 2326, \"piece\": \" three\", \"norm\": \"three\", \"logit\": 17.625, \"prob\": 0.018102511763572693}, {\"token_id\": 678, \"piece\": \" all\", \"norm\": \"all\", \"logit\": 17.625, \"prob\": 0.018102511763572693}, {\"token_id\": 3151, \"piece\": \" specific\", \"norm\": \"specific\", \"logit\": 17.5, \"prob\": 0.015975410118699074}, {\"token_id\": 3807, \"piece\": \" several\", \"norm\": \"sever"
+    },
+    {
+      "name": "mixture_distribution_gate_probe",
+      "passed": true,
+      "detail": "{\"status\": \"pass\", \"gate_min\": 0.3499999940395355, \"gate_max\": 0.3499999940395355, \"declared_floor\": 0.0, \"declared_ceiling\": 0.7, \"gate_in_range\": true, \"finite_gate\": true, \"finite_memory_logit_bias\": true, \"manual_mixture_finite\": true, \"gating\": \"PASS_or_not_implemented\"}"
+    }
+  ],
+  "elapsed_seconds": 1309.4044919013977
+}
+EXIT=1
