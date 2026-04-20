@@ -2068,23 +2068,74 @@ def context_descriptor_cluster_probe(seed: int) -> Dict[str, Any]:
                 "correct": ok,
             })
         return correct / max(len(subset), 1), correct, per_mem
-    # Metric 1: full 4-domain LOO NN
+    # Metric 1: full 4-domain LOO NN on context_descriptor
     acc_all, correct_all, per_all = _loo_nn(entries)
-    # Metric 2: held-out subset — cooking + finance only. These domains are not
-    # keyword-matched anywhere else in this suite; if the encoder generalizes,
-    # they should separate; if the encoder only memorizes music/space, they
-    # will not.
+    # Metric 2: held-out subset — cooking + finance only.
     heldout = [e for e in entries if e[1] in ("cooking", "finance")]
     acc_held, correct_held, per_held = _loo_nn(heldout)
     n_all = len(entries); n_held = len(heldout)
     unit_ok = all(abs(n_raw - 1.0) < 1e-3 or n_raw < 1e-6 for _, _, _, n_raw in entries)
-    # Pass criteria (stricter than single-domain v3.45 metric):
-    # - 4-domain LOO NN >= 0.65 (random = 0.25)
-    # - held-out 2-domain LOO NN >= 0.70 (random = 0.50)
-    # - unit_norm within tolerance
     cond_all = acc_all >= 0.65
     cond_held = acc_held >= 0.70
     passed = cond_all and cond_held and unit_ok
+    # ----------------------------------------------------------------------
+    # [Mechanism 1 diagnostic, v3.47]  Parallel LOO NN on `mem.semantic_emb`,
+    # which is the frozen-Qwen attention-pool of content-token hidden states
+    # (see scheme_b_v344.MemLLM._compute_content_semantic_emb). This field
+    # ALREADY exists on every populated MemEntry; the runner just reads it.
+    # No SUT change, no Cfg change.
+    # Question answered: does the frozen-Qwen attention pool, used directly
+    # as a context descriptor candidate, separate 4 domains better than the
+    # learned MemoryContextEncoder projection?
+    # ----------------------------------------------------------------------
+    sem_entries = []
+    for mid, mem in model.amm.tree.store.items():
+        v = getattr(mem, "semantic_emb", None)
+        if v is None:
+            continue
+        label = text_to_label.get(mem.source_text)
+        if label is None:
+            for dom, texts in domains.items():
+                if any(t in mem.source_text or mem.source_text in t for t in texts):
+                    label = dom; break
+        if label is None:
+            continue
+        vec = torch.nn.functional.normalize(v.float(), dim=-1, eps=1e-8)
+        norm_raw = float(v.float().norm().item())
+        sem_entries.append((mid, label, vec, norm_raw))
+    if len(sem_entries) >= 8:
+        sem_acc_all, sem_correct_all, sem_per_all = _loo_nn(sem_entries)
+        sem_heldout = [e for e in sem_entries if e[1] in ("cooking", "finance")]
+        sem_acc_held, sem_correct_held, sem_per_held = _loo_nn(sem_heldout)
+        # Per-domain accuracy for the semantic_emb path (for direct comparison)
+        from collections import defaultdict as _dd
+        sem_by_true = _dd(lambda: {"n": 0, "correct": 0})
+        for m_ in sem_per_all:
+            sem_by_true[m_["true_label"]]["n"] += 1
+            if m_["correct"]:
+                sem_by_true[m_["true_label"]]["correct"] += 1
+        sem_per_domain = {
+            dom: {"correct": sem_by_true[dom]["correct"],
+                  "n": sem_by_true[dom]["n"]}
+            for dom in sem_by_true
+        }
+        mechanism_1 = {
+            "source": "mem.semantic_emb (Qwen last-layer attention-pool over "
+                      "content tokens, no trainable encoder)",
+            "loo_nn_accuracy_all_4": sem_acc_all,
+            "loo_nn_accuracy_heldout_2": sem_acc_held,
+            "correct_all": sem_correct_all,
+            "correct_heldout": sem_correct_held,
+            "per_domain_accuracy": sem_per_domain,
+            "would_pass_4domain_threshold_0_65": sem_acc_all >= 0.65,
+            "would_pass_heldout_threshold_0_70": sem_acc_held >= 0.70,
+        }
+    else:
+        mechanism_1 = {
+            "source": "mem.semantic_emb (frozen-Qwen pool)",
+            "status": "insufficient entries",
+            "n_populated": len(sem_entries),
+        }
     return {
         "passed": passed,
         "status": "pass" if passed else "fail",
@@ -2104,6 +2155,7 @@ def context_descriptor_cluster_probe(seed: int) -> Dict[str, Any]:
             "unit_norm_within_1e_3": unit_ok,
         },
         "gating": "PASS_or_not_implemented",
+        "mechanism_1_qwen_pool_diagnostic": mechanism_1,
     }
 
 
