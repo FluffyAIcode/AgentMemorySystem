@@ -1,0 +1,71 @@
+[build] d_LLM=1536  L_mem=8  dampen=0.25
+`torch_dtype` is deprecated! Use `dtype` instead!
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 11767.67it/s]
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[build] device=cpu  tok_pad=<|endoftext|>
+[build] params total=1,657,083,224 trainable=113,368,920
+[build] memories stored: 11
+[step   0 |   8.0s] tot=566.851 recon=4.205 sa=9.902 et=5.552 tsa=10.922 va=-0.000 cs=0.000
+[step   1 |   6.8s] tot=108.189 recon=4.312 sa=9.655 et=5.246 tsa=10.819 va=-0.033 cs=0.024
+[step   2 |   7.1s] tot=65.034 recon=4.937 sa=9.591 et=5.510 tsa=10.674 va=-0.069 cs=0.017
+[step   3 |   6.8s] tot=66.606 recon=5.500 sa=9.480 et=6.235 tsa=10.755 va=-0.103 cs=0.089
+[step   4 |   7.1s] tot=62.108 recon=3.728 sa=9.583 et=5.185 tsa=10.267 va=-0.131 cs=0.118
+[step   5 |   6.3s] tot=109.068 recon=3.722 sa=9.137 et=5.613 tsa=10.813 va=-0.162 cs=0.104
+[step   6 |   6.9s] tot=55.705 recon=4.539 sa=9.207 et=5.532 tsa=10.672 va=-0.176 cs=0.032
+[step   7 |   6.7s] tot=59.428 recon=5.239 sa=9.221 et=6.308 tsa=10.750 va=-0.181 cs=0.126
+[step   8 |   6.5s] tot=124.122 recon=3.637 sa=9.295 et=4.808 tsa=10.258 va=-0.180 cs=0.166
+[step   9 |   6.8s] tot=59.065 recon=3.569 sa=9.533 et=4.829 tsa=10.812 va=-0.178 cs=0.159
+[step  10 |   6.7s] tot=57.171 recon=4.584 sa=9.091 et=5.049 tsa=10.658 va=-0.189 cs=0.000
+[step  11 |   6.3s] tot=53.703 recon=5.196 sa=9.096 et=5.832 tsa=10.738 va=-0.188 cs=0.049
+[step  12 |   6.7s] tot=52.814 recon=3.690 sa=9.380 et=4.345 tsa=10.256 va=-0.183 cs=0.172
+[step  13 |   6.7s] tot=50.494 recon=3.782 sa=9.439 et=4.873 tsa=10.808 va=-0.178 cs=0.129
+[step  14 |   6.7s] tot=49.679 recon=4.606 sa=9.216 et=5.060 tsa=10.652 va=-0.185 cs=0.000
+[step  15 |   6.6s] tot=49.815 recon=5.016 sa=9.106 et=5.609 tsa=10.725 va=-0.185 cs=0.000
+[step  16 |   6.8s] tot=47.230 recon=3.760 sa=9.355 et=4.178 tsa=10.250 va=-0.180 cs=0.090
+[step  17 |   6.6s] tot=48.436 recon=3.542 sa=9.370 et=4.657 tsa=10.794 va=-0.176 cs=0.033
+[step  18 |   7.0s] tot=52.727 recon=4.985 sa=9.134 et=5.012 tsa=10.634 va=-0.186 cs=0.000
+[step  19 |   6.8s] tot=48.519 recon=4.989 sa=9.056 et=5.591 tsa=10.692 va=-0.186 cs=0.000
+[step  20 |   6.8s] tot=47.311 recon=4.105 sa=9.309 et=4.396 tsa=10.245 va=-0.181 cs=0.009
+[step  21 |   6.6s] tot=46.897 recon=3.415 sa=9.265 et=4.574 tsa=10.770 va=-0.179 cs=0.000
+[step  22 |   6.7s] tot=50.561 recon=5.526 sa=9.225 et=4.885 tsa=10.629 va=-0.188 cs=0.000
+[step  23 |   6.9s] tot=49.184 recon=4.964 sa=9.084 et=5.415 tsa=10.674 va=-0.188 cs=0.000
+[step  24 |   6.4s] tot=47.563 recon=6.038 sa=9.291 et=4.041 tsa=10.268 va=-0.181 cs=0.000
+[step  25 |   6.3s] tot=46.143 recon=3.484 sa=9.089 et=4.318 tsa=10.762 va=-0.178 cs=0.000
+[step  26 |   6.4s] tot=51.182 recon=7.730 sa=9.300 et=4.798 tsa=10.647 va=-0.188 cs=0.000
+[step  27 |   6.4s] tot=48.543 recon=4.932 sa=9.217 et=5.339 tsa=10.677 va=-0.188 cs=0.000
+[step  28 |   6.5s] tot=50.054 recon=6.523 sa=9.291 et=3.845 tsa=10.307 va=-0.183 cs=0.000
+[step  29 |   6.7s] tot=47.652 recon=6.884 sa=9.002 et=4.036 tsa=10.756 va=-0.182 cs=0.000
+[step  30 |   7.0s] tot=50.673 recon=7.447 sa=9.235 et=4.660 tsa=10.663 va=-0.191 cs=0.000
+[step  31 |   6.8s] tot=47.293 recon=4.800 sa=9.123 et=5.195 tsa=10.676 va=-0.192 cs=0.000
+[step  32 |   6.4s] tot=48.821 recon=6.581 sa=9.327 et=3.657 tsa=10.354 va=-0.187 cs=0.000
+[step  33 |   6.6s] tot=47.844 recon=6.549 sa=9.125 et=3.596 tsa=10.762 va=-0.186 cs=0.000
+[step  34 |   6.4s] tot=49.840 recon=7.537 sa=9.232 et=4.646 tsa=10.684 va=-0.196 cs=0.000
+[step  35 |   6.4s] tot=47.458 recon=4.978 sa=9.002 et=4.822 tsa=10.681 va=-0.197 cs=0.000
+[step  36 |   6.5s] tot=48.095 recon=6.583 sa=9.316 et=3.563 tsa=10.409 va=-0.191 cs=0.000
+[step  37 |   6.5s] tot=46.948 recon=7.406 sa=9.063 et=3.116 tsa=10.773 va=-0.190 cs=0.000
+[step  38 |   6.8s] tot=49.248 recon=7.726 sa=9.189 et=4.271 tsa=10.708 va=-0.198 cs=0.000
+[step  39 |   6.5s] tot=45.898 recon=4.886 sa=9.052 et=4.372 tsa=10.695 va=-0.199 cs=0.000
+[step  40 |   6.5s] tot=46.012 recon=6.571 sa=9.218 et=3.168 tsa=10.483 va=-0.192 cs=0.000
+[step  41 |   6.3s] tot=47.347 recon=7.777 sa=9.141 et=2.912 tsa=10.792 va=-0.191 cs=0.000
+[step  42 |   6.6s] tot=48.669 recon=7.747 sa=9.031 et=3.943 tsa=10.714 va=-0.200 cs=0.000
+[step  43 |   6.5s] tot=47.022 recon=4.862 sa=9.074 et=4.247 tsa=10.704 va=-0.200 cs=0.000
+[step  44 |   6.9s] tot=51.938 recon=6.689 sa=9.204 et=3.175 tsa=10.520 va=-0.193 cs=0.000
+[step  45 |   6.7s] tot=46.256 recon=6.882 sa=9.156 et=2.917 tsa=10.798 va=-0.192 cs=0.000
+[step  46 |   6.9s] tot=47.718 recon=7.868 sa=8.947 et=3.878 tsa=10.701 va=-0.200 cs=0.000
+[step  47 |   6.7s] tot=47.864 recon=4.860 sa=9.120 et=5.451 tsa=10.705 va=-0.203 cs=0.000
+[step  48 |   6.6s] tot=48.181 recon=6.511 sa=9.258 et=4.032 tsa=10.529 va=-0.197 cs=0.000
+[step  49 |   6.5s] tot=47.044 recon=5.600 sa=9.113 et=4.386 tsa=10.782 va=-0.197 cs=0.000
+[step  50 |   6.6s] tot=46.651 recon=7.417 sa=8.890 et=3.763 tsa=10.672 va=-0.208 cs=0.000
+[step  51 |   6.4s] tot=46.120 recon=4.791 sa=9.140 et=4.544 tsa=10.705 va=-0.210 cs=0.000
+[step  52 |   6.4s] tot=45.525 recon=5.872 sa=9.240 et=3.308 tsa=10.535 va=-0.205 cs=0.000
+[step  53 |   6.7s] tot=46.228 recon=6.025 sa=9.056 et=3.544 tsa=10.764 va=-0.205 cs=0.000
+[step  54 |   6.5s] tot=45.687 recon=7.075 sa=8.867 et=3.546 tsa=10.648 va=-0.216 cs=0.000
+[step  55 |   6.2s] tot=44.940 recon=4.752 sa=9.072 et=4.160 tsa=10.689 va=-0.218 cs=0.000
+[step  56 |   6.2s] tot=43.719 recon=4.915 sa=9.097 et=2.926 tsa=10.503 va=-0.213 cs=0.000
+[step  57 |   6.4s] tot=43.905 recon=5.389 sa=9.061 et=2.558 tsa=10.751 va=-0.213 cs=0.000
+[step  58 |   6.7s] tot=43.939 recon=5.272 sa=8.868 et=3.474 tsa=10.631 va=-0.223 cs=0.000
+[step  59 |   6.6s] tot=44.196 recon=4.783 sa=9.020 et=3.839 tsa=10.682 va=-0.225 cs=0.000
+
+[done] total train time: 398.5s  avg/step=6.6s
+[done] checkpoint saved: ckpt/v344_trained.pt  (196 tensors)
