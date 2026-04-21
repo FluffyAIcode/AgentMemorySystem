@@ -126,7 +126,16 @@ class Cfg:
     tail_head_tied_extra: bool = True
     tail_head_zero_init_tied: bool = True
     # [B] tail slot_1 residual-dominant decomposition
-    tail_slot_residual_dominant: bool = True
+    # [v3.45] Off.  In v3.44-rewrite (true=on) combine_with_residual produced
+    # slot_1 = alpha*residual (L2=1.07) + beta*LN(head_out) (L2=11.76) and
+    # LN(head_out) direction dominated.  On a fresh init with zero-init
+    # slot_heads[1], LN(0) reduces to LayerNorm gamma direction (uniform),
+    # which is far from every rare-keyword WTE direction -> 4.23 median rank
+    # went to 1402 (v3.48 baseline 1089).  Reverted to naive additive path:
+    #   slot_1 = tail_head(fiber) + alpha * residual
+    # which in fresh init = alpha * residual (because slot_heads[1] is zero)
+    # and has slot direction = rare_keyword_centroid direction (by construction).
+    tail_slot_residual_dominant: bool = False
     tail_slot_beta_init: float = 0.3
     tail_slot_cos_alignment_floor: float = 0.5
     ret_centroid_weight: float = 0.30
@@ -277,7 +286,7 @@ class Cfg:
         'tail_semantic_anchor': 0.5,
         'functional_suppression': 0.4,
         'context_separation': 0.3,
-        'slot_residual_alignment': 0.3,  # [B]
+        'slot_residual_alignment': 0.0,  # [B] v3.45 disabled (see Cfg)
         'inter_domain_margin': 0.2})     # [C]
     warmup_steps_probe: int = 5; warmup_steps_dd: int = 5
     warmup_steps_rr: int = 5; warmup_steps_va: int = 5
@@ -3245,6 +3254,13 @@ class MemLLM(nn.Module):
                 stored += 1
         # [C] 触发 re-cluster
         self.amm.maybe_recluster(force=False)
+        # [D v3.45] rare_keyword_ids 的生成时机统一:write() 末尾刷新,与
+        # load_memory() 的行为对齐.  修正 4.13 的已识别不等价源 --- fresh
+        # path 和 load path 在此时机上产生的 rare_keyword_ids 必须完全相同,
+        # 否则 _compute_rare_keyword_wte_residual 一侧返回 None,
+        # 另一侧返回非零张量,generate() 输出字面值不同.
+        if stored > 0:
+            self._refresh_rare_keyword_indices()
         return stored, gate_vals
 
     def _refresh_all_memories(self):
