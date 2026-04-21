@@ -2018,17 +2018,27 @@ def context_descriptor_cluster_probe(seed: int) -> Dict[str, Any]:
             "missing_api": "MemEntry.context_descriptor field",
             "gating": "PASS_or_not_implemented",
         }
+    # [v3.48] Primary metric follows the SUT's own fallback chain as defined in
+    # scheme_b_v344.MemLLM._compute_aggregated_context_descriptors_d_llm:
+    #   if mem.context_descriptor is not None (and encoder is not None): use it
+    #   else if mem.semantic_emb is not None: use semantic_emb
+    # This way, running with Cfg(use_memory_context_encoder=False) exercises the
+    # same code path for 4.24 as for the SUT's runtime, instead of
+    # short-circuiting to a separate "context_descriptor only" metric that the
+    # SUT doesn't use.
+    used_semantic_fallback = (model.memory_context_encoder is None)
     entries = []
     for mid, mem in model.amm.tree.store.items():
-        v = getattr(mem, "context_descriptor", None)
+        if used_semantic_fallback:
+            v = getattr(mem, "semantic_emb", None)
+        else:
+            v = getattr(mem, "context_descriptor", None)
+            if v is None:  # per-memory fallback (if encoder present but ctx_desc missing)
+                v = getattr(mem, "semantic_emb", None)
         if v is None:
             continue
-        # Label assignment: source_text identity against the 4 corpora.
-        # No keyword list used. This is the de-overfit fix.
         label = text_to_label.get(mem.source_text)
         if label is None:
-            # If memory consolidation altered source_text, fall back to the
-            # domain whose corpus contains a non-trivial substring match.
             for dom, texts in domains.items():
                 if any(t in mem.source_text or mem.source_text in t for t in texts):
                     label = dom; break
