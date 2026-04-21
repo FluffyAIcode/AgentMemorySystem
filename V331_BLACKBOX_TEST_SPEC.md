@@ -567,6 +567,9 @@ Rationale (v3.45+): axis C evaluation for the tail subchannel requires measuring
 > - `loo_nn_accuracy_heldout_2 >= 0.70` (random = 0.50) — measured on the cooking + finance subset only, 8 memories, no keyword-based labeling anywhere
 > A system that only clusters the hand-crafted music/space pair by echoing its keyword-derived inputs will pass the 4-domain metric but fail the held-out metric.
 >
+> **Substitution ban (2026-04-20, applies to v3.49 and later):** The 4.24 primary metric reads `MemEntry.context_descriptor` LITERALLY. If the field is `None` for any memory, that memory is excluded from the primary metric. If `n_populated < 8`, the case status is `not_implemented` (not a silent `pass`). The runner MUST NOT substitute any other `MemEntry` field (including `semantic_emb`, `base`, `fiber`, `dirn`, `expanded_content_ids`, or any derived quantity) for the primary metric under any condition. Justifying substitution as "follow the SUT's own fallback chain" is explicitly rejected: the SUT's operational fallback (in `_compute_aggregated_context_descriptors_d_llm`) is a runtime behavior; the audit's primary metric is an API-surface test of the named field. Confusing the two is a Section 1.1.3 `audit-time-only code path` violation. Runners that read a non-`context_descriptor` field for the primary metric have their audit results invalidated.
+> Diagnostic-labelled blocks (e.g. `mechanism_1_qwen_pool_diagnostic`) may read `semantic_emb` or other fields; such blocks MUST NOT contribute to `passed` and MUST be labelled as diagnostics in the emitted JSON.
+>
 > Axes mapping: **axis C (semantic fidelity)** at the context-descriptor subchannel level.
 
 #### 4.24 corrected (v3.46+)
@@ -786,3 +789,15 @@ Reports produced against v3.37 through v3.44-Trained contain statements of two t
 - statements that a given probe's PASS implies the channel is "established", "working", or "substantially progressing"; these statements treated single-probe outcomes as evidence about the whole channel and are retracted.
 
 Retraction does not require rewriting prior reports. It does require that any report citing a pre-v3.45 feedback document include a sentence of the form: "cited feedback predates the 2026-04-20 correction of Section 1.1; the cited claim is superseded by the axis-coverage framing in Section 4-meta.1."
+
+### 7.9 Retraction notice for the v3.48 4.24 primary metric
+
+The v3.48 audit runner computed the 4.24 primary metric under a fallback rule that read `mem.semantic_emb` whenever `mem.context_descriptor` was `None` (i.e., whenever `Cfg(use_memory_context_encoder=False)`, which is how Mechanism 1 is wired). The justification given at the time — "the runner follows the SUT's own operational fallback chain" — is now rejected as a Section 1.1.3 audit-time-only code path that laundered a FAIL-by-API-contract into a numerical-value-lookalike PASS. See Section 4.24 "Substitution ban (v3.49+)".
+
+Consequences:
+
+- The v3.48 4.24 `loo_nn_accuracy_all_4 = 0.625` and `loo_nn_accuracy_heldout_2 = 0.750` values, when reported alongside `memory_context_encoder = None`, are invalidated as primary-metric values. They remain valid only as values of the `mechanism_1_qwen_pool_diagnostic` block (which is non-gating).
+- Any v3.48 report that stated "4.24 FAIL" or "4.24 PASS" based on the above values is retracted. Under the v3.49 rule, a v3.48-configuration run (encoder disabled, `context_descriptor = None`) reports `status = not_implemented` for 4.24; it is neither a PASS nor a FAIL of the channel.
+- Any v3.48 report that stated an overall pass count of N/26 derived from a 4.24 outcome obtained via the substitution rule must be re-counted under `not_implemented`. For the v3.48 configuration, the corrected 4.24 outcome is `not_implemented`, and `not_implemented` is NOT counted as a PASS under Section 7.4.
+
+Reports citing v3.48 4.24 results must include: "the cited 4.24 number was obtained under the v3.48 runner's substitution rule, which is retracted by Section 7.9; the primary metric is not defined for that configuration."

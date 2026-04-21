@@ -2018,23 +2018,19 @@ def context_descriptor_cluster_probe(seed: int) -> Dict[str, Any]:
             "missing_api": "MemEntry.context_descriptor field",
             "gating": "PASS_or_not_implemented",
         }
-    # [v3.48] Primary metric follows the SUT's own fallback chain as defined in
-    # scheme_b_v344.MemLLM._compute_aggregated_context_descriptors_d_llm:
-    #   if mem.context_descriptor is not None (and encoder is not None): use it
-    #   else if mem.semantic_emb is not None: use semantic_emb
-    # This way, running with Cfg(use_memory_context_encoder=False) exercises the
-    # same code path for 4.24 as for the SUT's runtime, instead of
-    # short-circuiting to a separate "context_descriptor only" metric that the
-    # SUT doesn't use.
-    used_semantic_fallback = (model.memory_context_encoder is None)
+    # [SPEC 4.24 v3.49] Primary metric reads `MemEntry.context_descriptor`
+    # literally, with no substitution. The runner MUST NOT read any other
+    # field (including mem.semantic_emb) for the primary metric. Substitution
+    # was briefly introduced in v3.48 as "follow SUT fallback chain"; that
+    # interpretation was a Section 1.1.3 policy violation (audit-time-only
+    # code path that laundered a FAIL into a PASS-lookalike number). Reverted.
+    #
+    # The diagnostic block further below may read semantic_emb, but it is
+    # clearly labeled as a diagnostic, does NOT influence `passed`, and must
+    # not be referenced as a primary outcome.
     entries = []
     for mid, mem in model.amm.tree.store.items():
-        if used_semantic_fallback:
-            v = getattr(mem, "semantic_emb", None)
-        else:
-            v = getattr(mem, "context_descriptor", None)
-            if v is None:  # per-memory fallback (if encoder present but ctx_desc missing)
-                v = getattr(mem, "semantic_emb", None)
+        v = getattr(mem, "context_descriptor", None)
         if v is None:
             continue
         label = text_to_label.get(mem.source_text)
@@ -2047,14 +2043,6 @@ def context_descriptor_cluster_probe(seed: int) -> Dict[str, Any]:
         vec = torch.nn.functional.normalize(v.float(), dim=-1, eps=1e-8)
         norm_raw = float(v.float().norm().item())
         entries.append((mid, label, vec, norm_raw))
-    if len(entries) < 8:
-        return {
-            "passed": False,
-            "status": "not_implemented",
-            "missing_api": "insufficient populated context_descriptor entries (need >= 8, got {})".format(len(entries)),
-            "n_populated": len(entries),
-            "gating": "PASS_or_not_implemented",
-        }
     def _loo_nn(subset):
         correct = 0
         per_mem = []
@@ -2078,25 +2066,37 @@ def context_descriptor_cluster_probe(seed: int) -> Dict[str, Any]:
                 "correct": ok,
             })
         return correct / max(len(subset), 1), correct, per_mem
-    # Metric 1: full 4-domain LOO NN on context_descriptor
-    acc_all, correct_all, per_all = _loo_nn(entries)
-    # Metric 2: held-out subset — cooking + finance only.
-    heldout = [e for e in entries if e[1] in ("cooking", "finance")]
-    acc_held, correct_held, per_held = _loo_nn(heldout)
-    n_all = len(entries); n_held = len(heldout)
-    unit_ok = all(abs(n_raw - 1.0) < 1e-3 or n_raw < 1e-6 for _, _, _, n_raw in entries)
-    cond_all = acc_all >= 0.65
-    cond_held = acc_held >= 0.70
-    passed = cond_all and cond_held and unit_ok
+    # Primary metric (computed only if enough context_descriptor entries).
+    insufficient_ctx = (len(entries) < 8)
+    if not insufficient_ctx:
+        acc_all, correct_all, per_all = _loo_nn(entries)
+        heldout = [e for e in entries if e[1] in ("cooking", "finance")]
+        acc_held, correct_held, per_held = _loo_nn(heldout)
+        n_all = len(entries); n_held = len(heldout)
+        unit_ok = all(abs(n_raw - 1.0) < 1e-3 or n_raw < 1e-6 for _, _, _, n_raw in entries)
+        cond_all = acc_all >= 0.65
+        cond_held = acc_held >= 0.70
+        passed = cond_all and cond_held and unit_ok
+    else:
+        acc_all = correct_all = per_all = None
+        acc_held = correct_held = per_held = None
+        n_all = len(entries); n_held = 0
+        unit_ok = None
+        cond_all = cond_held = False
+        passed = False
     # ----------------------------------------------------------------------
-    # [Mechanism 1 diagnostic, v3.47]  Parallel LOO NN on `mem.semantic_emb`,
-    # which is the frozen-Qwen attention-pool of content-token hidden states
-    # (see scheme_b_v344.MemLLM._compute_content_semantic_emb). This field
-    # ALREADY exists on every populated MemEntry; the runner just reads it.
-    # No SUT change, no Cfg change.
-    # Question answered: does the frozen-Qwen attention pool, used directly
-    # as a context descriptor candidate, separate 4 domains better than the
-    # learned MemoryContextEncoder projection?
+    # [Mechanism 1 diagnostic, v3.47+]
+    # WARNING: This block is a DIAGNOSTIC. It does NOT affect `passed`.
+    # It does NOT contribute to any pass criterion of case 4.24. The 4.24
+    # primary pass/fail is determined strictly by `MemEntry.context_descriptor`
+    # above (cond_all AND cond_held AND unit_ok). See SPEC Section 4.24 v3.49
+    # substitution ban.
+    #
+    # This block reads `mem.semantic_emb` (the frozen-Qwen attention-pool of
+    # content-token hidden states) to answer the orthogonal question: does
+    # Qwen's own pooled representation separate the 4 domains better than the
+    # learned MemoryContextEncoder projection? The answer is useful for
+    # mechanism design, not for scoring this case.
     # ----------------------------------------------------------------------
     sem_entries = []
     for mid, mem in model.amm.tree.store.items():
@@ -2146,10 +2146,26 @@ def context_descriptor_cluster_probe(seed: int) -> Dict[str, Any]:
             "status": "insufficient entries",
             "n_populated": len(sem_entries),
         }
+    if insufficient_ctx:
+        return {
+            "passed": False,
+            "status": "not_implemented",
+            "metric_version": "v3.49",
+            "missing_api": (
+                "insufficient populated MemEntry.context_descriptor entries "
+                "(need >= 8, got {}). Per SPEC 4.24 v3.49 substitution ban, "
+                "the runner MUST NOT substitute any other field; this "
+                "configuration is not measurable by the 4.24 primary "
+                "metric.".format(n_all)
+            ),
+            "n_populated": n_all,
+            "gating": "PASS_or_not_implemented",
+            "mechanism_1_qwen_pool_diagnostic": mechanism_1,
+        }
     return {
         "passed": passed,
         "status": "pass" if passed else "fail",
-        "metric_version": "v3.46",
+        "metric_version": "v3.49",
         "loo_nn_accuracy_all_4": acc_all,
         "loo_nn_accuracy_heldout_2": acc_held,
         "n_all": n_all,
