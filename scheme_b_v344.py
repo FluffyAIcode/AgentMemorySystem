@@ -99,7 +99,16 @@ class Cfg:
     content_bias_relevance_floor: float = 0.30
     content_bias_concentration: float = 1.5
     # [E] top-1 exclusive content bias
-    use_top1_exclusive_content_bias: bool = True
+    # [v3.46] Disabled.  v3.44-rewrite enabled this (=True) to concentrate
+    # content_bias onto top-1 memory's keywords.  Under v3.44-rewrite this
+    # over-concentrated the bias to ~+22 logit on ~8 tokens, which then
+    # races against content_repeat_penalty=2.5 -- the penalty only wins
+    # at k>=10 while cyclic_content_max_count=5 hard-masks at k=5, so
+    # 4.7 / 4.8 / 4.21 collapsed into repetition.  [C] cluster-crowding
+    # (independent Cfg path) already delivered 4.16; [E] was not its
+    # cause.  Reverting to the aggregated (pre-v3.44-rewrite) path.
+    # v3.48 baseline under this config had 4.7 / 4.8 / 4.21 all PASS.
+    use_top1_exclusive_content_bias: bool = False
     top1_content_bias_weight: float = 0.7
     rest_content_bias_weight: float = 0.3
     top1_relevance_floor: float = 0.5
