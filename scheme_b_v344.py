@@ -2541,14 +2541,23 @@ class MemLLM(nn.Module):
                 else:
                     skipped += 1
         prov = blob.get("provenance", "?") if isinstance(blob, dict) else "?"
+        total_nonbb_ckpt = sum(1 for k in sd if not k.startswith("backbone"))
         print(f"  [AMS_TRAINED_WEIGHTS] loaded={loaded} skipped={skipped} "
               f"shape_errs={len(shape_errs)}  path={path}  provenance={prov}")
         if shape_errs:
             for n, s_model, s_ckpt in shape_errs[:5]:
-                print(f"    ! shape mismatch {n}: model={s_model} ckpt={s_ckpt}")
+                print(f"    ! shape mismatch (skipped) {n}: model={s_model} ckpt={s_ckpt}")
+            if len(shape_errs) > 5:
+                print(f"    ... and {len(shape_errs) - 5} more shape mismatches, all skipped")
+        # Raise only if essentially nothing loaded AND the ckpt had content to offer:
+        # this catches the "loaded a v344/v348 ckpt against v3.46 shapes" mistake
+        # warned about in SPRINT_CLOSEOUT_v3.46.md \u00a76, without breaking probes
+        # like 4.25 that scale L_mem and legitimately have a few mismatching tensors.
+        if loaded == 0 and total_nonbb_ckpt > 10:
             raise RuntimeError(
-                f"AMS_TRAINED_WEIGHTS shape mismatch on {len(shape_errs)} tensor(s); "
-                f"ckpt not compatible with current SUT shapes")
+                f"AMS_TRAINED_WEIGHTS loaded 0 non-backbone tensors "
+                f"(ckpt had {total_nonbb_ckpt}); shape_errs={len(shape_errs)}. "
+                f"ckpt appears incompatible with current SUT shapes")
 
     def _compute_filler_centroid(self):
         if self.content_classifier is None or self.backbone is None:
