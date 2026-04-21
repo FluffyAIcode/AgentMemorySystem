@@ -1,0 +1,28 @@
+[build] Cfg: use_memory_context_encoder=False
+[build] loss_weights[encoder_throughput]=3.0
+[build] loss_weights[semantic_alignment]=1.0
+`torch_dtype` is deprecated! Use `dtype` instead!
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 10159.41it/s]
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[build] device=cpu  params_trainable=112,974,168
+[M2 warm-start] {'applied': True, 'qwen_q_shape': (1536, 1536), 'qwen_k_shape': (256, 1536), 'tiled_to_d_llm': 1536, 'tile_factor_k': 6}
+[M4 pool-init] init_texts[0]='The telescope revealed distant galaxies beyond the Milky Way'  pooled_mean_l2=0.809
+[build] memories stored: 15
+[M3 distill opt] params=75,672,576  lr=0.0003
+[step   0 |  24.3s] tot=578.744 recon=4.266 et=5.247 va=-0.000  d_loss=+0.009 cos=-0.008
+[step  10 |  22.0s] tot=29.098 recon=4.030 et=4.335 va=-0.198  d_loss=-0.604 cos=+0.636
+[step  20 |  22.6s] tot=27.583 recon=3.759 et=4.066 va=-0.199  d_loss=-0.726 cos=+0.740
+[step  30 |  22.9s] tot=22.678 recon=2.553 et=3.039 va=-0.222  d_loss=-0.747 cos=+0.762
+[step  40 |  24.1s] tot=21.947 recon=2.856 et=2.718 va=-0.243  d_loss=-0.859 cos=+0.860
+[step  50 |  21.8s] tot=21.854 recon=2.988 et=2.601 va=-0.246  d_loss=-0.868 cos=+0.869
+[step  60 |  21.9s] tot=23.679 recon=3.419 et=3.177 va=-0.263  d_loss=-0.761 cos=+0.778
+[step  70 |  22.4s] tot=22.384 recon=3.402 et=2.799 va=-0.276  d_loss=-0.885 cos=+0.885
+[step  80 |  21.9s] tot=21.034 recon=2.954 et=2.466 va=-0.272  d_loss=-0.881 cos=+0.881
+[step  90 |  21.3s] tot=21.596 recon=2.965 et=2.730 va=-0.293  d_loss=-0.642 cos=+0.674
+[step 100 |  23.4s] tot=20.226 recon=3.001 et=2.225 va=-0.313  d_loss=-0.749 cos=+0.763
+[step 110 |  23.3s] tot=16.911 recon=2.056 et=1.661 va=-0.333  d_loss=-0.758 cos=+0.773
+[step 119 |  22.3s] tot=17.495 recon=2.083 et=1.727 va=-0.329  d_loss=-0.758 cos=+0.775
+
+[done] total train time: 2685.8s  avg/step=22.4s  (120/120 steps)
+[done] checkpoint saved: ckpt/v348_stacked.pt  (193 tensors)
