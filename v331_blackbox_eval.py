@@ -1859,6 +1859,19 @@ def keyword_specific_tail_slot_probe(seed: int) -> Dict[str, Any]:
     non_none_count = 0
     hits_ge_1 = 0
     per_memory = []
+    # [v3.45 cond-buffer] Prefer bridge._last_cond_tail_slots (populated by
+    # is_cond_path=True injects only).  This avoids reading the uncond
+    # contrastive prefix's tail slots, which are produced with
+    # rare_keyword_wte_residual=None and therefore by construction do not
+    # carry the rare-keyword signal that this probe is designed to measure.
+    # Fallback to _last_tail_slots for older SUT versions that do not
+    # expose the cond-only mirror.
+    def _get_tail_slots_cond_preferred(mdl):
+        br = mdl.bridge
+        ts = getattr(br, "_last_cond_tail_slots", None)
+        if ts is None:
+            ts = getattr(br, "_last_tail_slots", None)
+        return ts
     # (a) Legacy round-trip path, retained as diagnostic.
     roundtrip_inter = []
     for mid, mem in model.amm.tree.store.items():
@@ -1866,7 +1879,7 @@ def keyword_specific_tail_slot_probe(seed: int) -> Dict[str, Any]:
         if not rare:
             continue
         _ = _cipher_prep_decode(model, mem.source_text)
-        ts = model.bridge._last_tail_slots
+        ts = _get_tail_slots_cond_preferred(model)
         if ts is None:
             continue
         slot_idx = 1 if ts.shape[1] >= 2 else ts.shape[1] - 1
@@ -1903,7 +1916,7 @@ def keyword_specific_tail_slot_probe(seed: int) -> Dict[str, Any]:
         # Verify query token-disjoint from rare_dom (audit-observable property).
         query_token_ids = set(model.tok.encode(pq))
         disjoint_from_rare = len(query_token_ids & set(rare_dom)) == 0
-        tail_slots = model.bridge._last_tail_slots
+        tail_slots = _get_tail_slots_cond_preferred(model)
         if tail_slots is None:
             continue
         slot_idx = 1 if tail_slots.shape[1] >= 2 else tail_slots.shape[1] - 1
@@ -1961,7 +1974,12 @@ def keyword_specific_tail_slot_probe(seed: int) -> Dict[str, Any]:
     return {
         "passed": passed,
         "status": "pass" if passed else "fail",
-        "metric_version": "v3.46",
+        "metric_version": "v3.50",
+        "tail_slots_source": (
+            "bridge._last_cond_tail_slots"
+            if hasattr(model.bridge, "_last_cond_tail_slots")
+            and getattr(model.bridge, "_last_cond_tail_slots", None) is not None
+            else "bridge._last_tail_slots"),
         "per_paraphrase": per_paraphrase,
         "mean_intersection_size_top20_paraphrase": mean_intersection_20,
         "median_rank_of_best_rare_paraphrase": median_best_rank,

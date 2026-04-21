@@ -1500,6 +1500,18 @@ class EmbBridge(nn.Module):
         self._last_context_slot=None
         self._last_tail_pre_renorm = None   # [B] 测试探针
         self._last_residual = None
+        # [v3.45 cond-buffer] Separate mirrors that are updated ONLY when
+        # inject is called with is_cond_path=True.  Audit probes that want
+        # the cond-path tensors (e.g. 4.23 keyword_specific_tail_slot_probe)
+        # MUST read these instead of _last_*, because
+        # prepare_decode_context's second inject call (uncond contrastive)
+        # overwrites _last_* with uncond values.
+        self._last_cond_fiber_summary = None
+        self._last_cond_tail_slots = None
+        self._last_cond_context_slot = None
+        self._last_cond_tail_pre_renorm = None
+        self._last_cond_residual = None
+        self._last_cond_inject_diag = {}
 
     def _build_body_prefix(self, fibers, mem_mask, fiber_summary):
         qf_out = self.proj(fibers, mem_mask) + self.pe.unsqueeze(0)
@@ -1539,7 +1551,7 @@ class EmbBridge(nn.Module):
 
     def inject(self, fibers, mem_mask=None, fiber_summary=None,
                filler_centroid=None, context_descriptors_d_llm=None,
-               rare_keyword_wte_residual=None):
+               rare_keyword_wte_residual=None, is_cond_path: bool = True):
         qf_out, bp_out, gate_val = self._build_body_prefix(fibers, mem_mask, fiber_summary)
         L_total = qf_out.shape[1]
         tail_slots_used = 0
@@ -1612,7 +1624,20 @@ class EmbBridge(nn.Module):
             'last_slot_norm_per_b': qf_out[:, -1].norm(dim=-1).mean().item(),
             'tail_slots_used': tail_slots_used,
             'ctx_slot_used': ctx_slots_used,
-            'filler_dir_projected': filler_dir_used}
+            'filler_dir_projected': filler_dir_used,
+            'is_cond_path': bool(is_cond_path)}
+        # [v3.45 cond-buffer] Mirror to cond-only buffers so that a later
+        # uncond inject in prepare_decode_context does not clobber what
+        # audit probes need.  Nothing else on this path reads these mirrors;
+        # reads happen only from audit code (and from new
+        # slot_residual_alignment_loss if enabled, see below).
+        if is_cond_path:
+            self._last_cond_fiber_summary = self._last_fiber_summary
+            self._last_cond_tail_slots = self._last_tail_slots
+            self._last_cond_context_slot = self._last_context_slot
+            self._last_cond_tail_pre_renorm = self._last_tail_pre_renorm
+            self._last_cond_residual = self._last_residual
+            self._last_cond_inject_diag = dict(self._last_inject_diag)
         return qf_out
 
     def build_neutral_prefix(self, B, device):
@@ -3020,7 +3045,8 @@ class MemLLM(nn.Module):
                     single, mask_one, fiber_summary=non_dom_fibers_t[b:b+1],
                     filler_centroid=self._filler_centroid,
                     context_descriptors_d_llm=None,
-                    rare_keyword_wte_residual=None)
+                    rare_keyword_wte_residual=None,
+                    is_cond_path=False)
                 uncond_prefix[b:b+1] = pref_b
             else:
                 uncond_prefix[b:b+1] = self.bridge.build_neutral_prefix(1, dev)
