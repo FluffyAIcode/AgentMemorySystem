@@ -1342,6 +1342,22 @@ class DirectionTree:
         if ti!=si: errs.append(f"tree≠store: tree_only={ti-si}, store_only={si-ti}")
         if self.root.count()!=len(self.store): errs.append(f"count mismatch")
         return errs
+    def max_depth(self) -> int:
+        def _d(nd):
+            if nd.leaf: return nd.depth
+            if not nd.children: return nd.depth
+            return max(_d(c) for c in nd.children)
+        return _d(self.root)
+    def leaf_size_violations(self) -> List[Tuple[int, int]]:
+        viols = []
+        def _check(nd):
+            if nd.leaf:
+                if len(nd.ids) > self.c.tree_max_leaf:
+                    viols.append((nd.depth, len(nd.ids)))
+            else:
+                for c in nd.children: _check(c)
+        _check(self.root)
+        return viols
     def recluster_semantic(self, K):
         """[C] 对所有 memory 的 semantic_emb 做 KMeans,赋予 cluster_id。"""
         mids = sorted(self.store.keys())
