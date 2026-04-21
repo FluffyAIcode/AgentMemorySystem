@@ -1,39 +1,43 @@
 #!/usr/bin/env python3
 """
-嵌入级方案B · v3.44-Trained
+嵌入级方案B · v3.44
 ═══════════════════════════════════════════════════════════════════════════
-BASELINE: 全盘复用 v3.42 的参数与结构(17/26 PASS 的当前最佳标量点)。
+针对 v3.43 遗留 FAIL(4.7/4.11/4.13/4.16/4.19/4.23/4.24) 的收敛修复:
 
-唯一新增:
-- [J-1] MemLLM.load() 末尾探测 `AMS_TRAINED_WEIGHTS` 环境变量指向的
-        checkpoint 文件,若存在则加载除 `backbone` 外所有可训练权重。
-        这允许审计入口保持 spec 不变:runner 直接 `import AgentMemorySystem`,
-        SUT 自动加载训练后的权重,所有测量反映训练后状态。
+[A] MemoryContextEncoder 注意力池化
+    Q = learnable Parameter(d_ctx)
+    K,V = Linear(d_LLM, d_ctx)(hidden_states)
+    + residual shortcut via orthogonal proj_wte(wte_centroid)
+    write() 路径传入 content-token hidden states + mask
 
-目标:验证"训练缺失"是 4.15/4.23/4.24 失败的真实根因;若训练后这些 case
-改善,证伪"eval-time 已触顶 17/26 上界"的假设。
+[B] 尾槽 slot_1 残差主导分解
+    slot_1 = α × rare_keyword_residual + β × LN(head_output)
+    β = Parameter(init=0.3),可学习但受 L2 正则约束
+    新增 slot_residual_alignment_loss: relu(0.5 - cos(slot_1, residual))
 
-原 v3.42 说明:
-针对 v3.41 八条 FAIL 的收敛性修复:
+[C] inter-domain margin + 检索 crowding
+    Trainer.inter_domain_margin_loss: KMeans on semantic_emb → 弱标签
+      same-domain cos ≥ 0.6, cross-domain cos ≤ 0.3, margin = 0.3
+    DirectionTree 存储 _mem_cluster_id(每次写入后 re-cluster)
+    retrieve_multi rerank 扣 λ × inter_domain_crowding
 
-[H-1] 4.7/4.8/4.10/4.15/4.17/4.21 共同根因:content_bias 双加
-      → content_bias 和 suppression_bias **仅在 fwd 路径应用一次**。
-      → content_bias_relevance_floor: 0.05→0.3
-      → content_bias_concentration: 2.0→1.5
-      → cyclic_content_max_count: 2→3
+[D] save/load 确定性
+    sorted(state['store'].keys()) 写入
+    sorted(set(...)) 替 list(set(...)) on content_token_ids union
+    _refresh_rare_keyword_indices 按 mid 排序
+    PrefixAligner._calibrated flag 保护重复校准
+    每个 MemEntry 写入 SHA256 指纹,load 校验
 
-[H-2] 4.23 → zero-init slot_heads[1] + wte_residual_alpha=1.5(native WTE scale)
+[E] content_bias top-1 专属 + top-k 兜底
+    b_bias = 0.7 × build(top1, floor=0.5) + 0.3 × build(rest, floor=0.2)
 
-[H-3] 4.24 → MemoryContextEncoder = single orthogonal Linear(d_LLM→d_ctx, bias=False)
-
-[H-4] 4.17 → save/load 双端 .detach().cpu().clone().contiguous()
-             + 稳定 tie-break 排序
-
-[H-5] 4.25 随 [H-1] A 自然下降 + [H-2] 扩容 tail slot 真信号
+[F] mixture gate circuit breaker
+    generate 步记录 -log P(chosen),baseline = 前 3 步均值
+    连续 3 步超 1.5 × baseline → 临时 ceiling = 0.3(hysteresis 5 步)
 """
 import torch, torch.nn as nn, torch.nn.functional as F
-import math, time, os
-from typing import Dict, List, Tuple, Optional, NamedTuple, FrozenSet
+import math, time, os, hashlib
+from typing import Dict, List, Tuple, Optional, NamedTuple, FrozenSet, Set
 from dataclasses import dataclass, field
 
 @dataclass
@@ -76,9 +80,9 @@ class Cfg:
     fwd_path_hard_mask_value: float = -1e9
     use_no_repeat_bigram: bool = True
     no_repeat_bigram_penalty: float = 5.0
-    # [H-1] content_bias 仅在 fwd 路径应用,shape_step 不再加
     use_fwd_path_content_bias: bool = True
-    fwd_path_bias_dampen: float = 0.25
+    fwd_path_bias_dampen: float = 1.0
+    apply_content_bias_symmetric_cfg: bool = True
     shape_step_applies_content_bias: bool = False
     shape_step_applies_suppression_bias: bool = False
     guidance_min_memory_weight: float = 1e-6
@@ -88,11 +92,18 @@ class Cfg:
     content_bias_decay: float = 0.02
     content_bias_floor: float = 0.5
     generated_token_decay: float = 0.2
-    content_repeat_penalty: float = 3.5
-    content_repeat_exponent: float = 1.5
-    # [H-1]
+    content_repeat_penalty: float = 2.5
+    content_repeat_exponent: float = 1.0
+    cyclic_content_window: int = 15
+    cyclic_content_max_count: int = 5
     content_bias_relevance_floor: float = 0.30
     content_bias_concentration: float = 1.5
+    # [E] top-1 exclusive content bias
+    use_top1_exclusive_content_bias: bool = True
+    top1_content_bias_weight: float = 0.7
+    rest_content_bias_weight: float = 0.3
+    top1_relevance_floor: float = 0.5
+    rest_relevance_floor: float = 0.2
     retrieval_use_expanded_ids: bool = True
     use_memory_guided_suppression: bool = True
     suppression_bias_scale: float = 4.0
@@ -113,8 +124,11 @@ class Cfg:
     content_tail_slots: int = 2
     tail_head_hidden: int = 1024
     tail_head_tied_extra: bool = True
-    # [H-2]
     tail_head_zero_init_tied: bool = True
+    # [B] tail slot_1 residual-dominant decomposition
+    tail_slot_residual_dominant: bool = True
+    tail_slot_beta_init: float = 0.3
+    tail_slot_cos_alignment_floor: float = 0.5
     ret_centroid_weight: float = 0.30
     ret_sem_weight: float = 0.10
     ret_bidi_min_weight: float = 0.25
@@ -157,9 +171,6 @@ class Cfg:
     ngram_repeat_penalty: float = 10.0
     ngram_repeat_max_n: int = 4
     use_cyclic_content_hard_mask: bool = True
-    cyclic_content_window: int = 15
-    # [H-1]
-    cyclic_content_max_count: int = 3
     use_content_gated_newline: bool = True
     min_content_tokens_before_newline: int = 8
     late_newline_penalty: float = 20.0
@@ -170,7 +181,8 @@ class Cfg:
     eos_hard_mask_steps: int = 10
     use_filler_direction_projection: bool = True
     filler_projection_last_slots: int = 2
-    use_prefix_norm_clamp: bool = True
+    use_slot_norm_renormalize: bool = True
+    use_prefix_norm_clamp: bool = False
     prefix_norm_clamp_ratio: float = 1.0
     semantic_boost_scale: float = 0.5
     semantic_boost_decay: float = 0.06
@@ -207,6 +219,12 @@ class Cfg:
     use_memory_context_encoder: bool = True
     d_ctx: int = 128
     context_encoder_hidden: int = 256
+    context_encoder_hybrid: bool = True
+    context_hybrid_hidden_weight: float = 0.8
+    # [A] attention pool ctx encoder
+    context_encoder_use_attention_pool: bool = True
+    context_encoder_residual_weight: float = 0.3
+    context_encoder_attn_dropout: float = 0.0
     use_decode_functional_suppression: bool = True
     decode_fs_margin: float = 1.5
     decode_fs_scale: float = 4.0
@@ -219,9 +237,10 @@ class Cfg:
     fwd_function_suppression_floor: float = 0.3
     fwd_function_suppression_apply_dampen: bool = False
     use_wte_residual_tail: bool = True
-    # [H-2]
     wte_residual_alpha: float = 1.5
     wte_residual_post_aligner: bool = True
+    wte_residual_centered: bool = True
+    wte_residual_exclude_generated: bool = True
     scale_tail_with_L_mem: bool = True
     tail_L_mem_base: int = 8
     tail_L_mem_step: int = 2
@@ -230,6 +249,22 @@ class Cfg:
     mixture_gate_floor: float = 0.0
     mixture_gate_ceiling: float = 0.7
     mixture_gate_hidden: int = 256
+    # [F] circuit breaker
+    use_circuit_breaker: bool = True
+    circuit_breaker_baseline_steps: int = 3
+    circuit_breaker_threshold_ratio: float = 1.5
+    circuit_breaker_consec_steps: int = 3
+    circuit_breaker_hysteresis: int = 5
+    circuit_breaker_clamp_ceiling: float = 0.3
+    # [C] inter-domain margin
+    use_inter_domain_margin: bool = True
+    inter_domain_same_cos_target: float = 0.6
+    inter_domain_cross_cos_target: float = 0.3
+    inter_domain_margin: float = 0.3
+    inter_domain_kmeans_k: int = 2
+    inter_domain_kmeans_iters: int = 20
+    retrieval_crowding_lambda: float = 0.15
+    mem_recluster_every_writes: int = 4
     context_encoder_source: str = "wte_strict_starter"
     context_encoder_fp32: bool = True
     warmup_steps_ctx_sep: int = 10
@@ -241,12 +276,16 @@ class Cfg:
         'reranker_ranking': 0.2, 'vocab_anchor': 0.2,
         'tail_semantic_anchor': 0.5,
         'functional_suppression': 0.4,
-        'context_separation': 0.3})
+        'context_separation': 0.3,
+        'slot_residual_alignment': 0.3,  # [B]
+        'inter_domain_margin': 0.2})     # [C]
     warmup_steps_probe: int = 5; warmup_steps_dd: int = 5
     warmup_steps_rr: int = 5; warmup_steps_va: int = 5
     warmup_steps_sa: int = 0
     warmup_steps_tsa: int = 0
     warmup_steps_fs: int = 3
+    warmup_steps_sra: int = 3   # [B]
+    warmup_steps_idm: int = 5   # [C]
     uw_clamp_lo: float = -4.0; uw_clamp_hi: float = 4.0
     vocab_anchor_topk: int = 5; content_min_len: int = 3
     refresh_memories_every: int = 1
@@ -300,10 +339,48 @@ class Cfg:
         assert self.context_encoder_source in ("wte_strict_starter", "hidden_mean")
         assert self.content_bias_relevance_floor >= 0.0
         assert self.cyclic_content_max_count >= 1
+        assert 0.0 <= self.context_hybrid_hidden_weight <= 2.0
+        assert 0.0 <= self.top1_content_bias_weight <= 1.0
+        assert abs(self.top1_content_bias_weight + self.rest_content_bias_weight - 1.0) < 1e-6
+        assert 0.0 <= self.top1_relevance_floor <= 1.0
+        assert 0.0 <= self.rest_relevance_floor <= 1.0
+        assert self.inter_domain_kmeans_k >= 2
+        assert 0.0 < self.inter_domain_same_cos_target <= 1.0
+        assert 0.0 <= self.inter_domain_cross_cos_target < self.inter_domain_same_cos_target
+        assert 0.0 < self.circuit_breaker_clamp_ceiling <= self.mixture_gate_ceiling or not self.use_mixture_decoding
+        assert 0.0 <= self.tail_slot_cos_alignment_floor <= 1.0
+        assert 0.0 <= self.tail_slot_beta_init <= 2.0
 
 def _dev(ref): return dict(device=ref.device, dtype=ref.dtype)
 def _resolve_dtype(name):
     return {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}[name]
+
+def _sorted_set(iterable):
+    """[D] 确定性版本的 list(set(x)),适用于整数 token id。"""
+    return sorted(set(int(x) for x in iterable))
+
+def _simple_kmeans(x, k, n_iter=20, seed=0):
+    """[C] 确定性 KMeans(torch-only),用于弱域标签。"""
+    N, D = x.shape
+    if N <= k:
+        return torch.arange(N, device=x.device), x.clone()
+    g = torch.Generator(device='cpu').manual_seed(seed)
+    perm = torch.randperm(N, generator=g).to(x.device)
+    centers = x[perm[:k]].clone()
+    assign_prev = None
+    for _ in range(n_iter):
+        d = torch.cdist(x, centers)
+        assign = d.argmin(dim=1)
+        if assign_prev is not None and torch.equal(assign, assign_prev):
+            break
+        new_centers = centers.clone()
+        for j in range(k):
+            mask = assign == j
+            if mask.any():
+                new_centers[j] = x[mask].mean(0)
+        centers = new_centers
+        assign_prev = assign
+    return assign, centers
 
 @dataclass
 class DecodeState:
@@ -311,8 +388,10 @@ class DecodeState:
     generated_content_counts: Dict[int, int] = field(default_factory=dict)
     content_history: List[Tuple[int, int]] = field(default_factory=list)
     recent_starters: List[Tuple[int, int]] = field(default_factory=list)
+    # [F] circuit breaker signals
+    token_nll_history: List[float] = field(default_factory=list)
 
-    def update(self, nxt_id, step, cc, bpe_echo_window, cyclic_content_window):
+    def update(self, nxt_id, step, cc, bpe_echo_window, cyclic_content_window, nll=None):
         self.generated_ids.append(nxt_id)
         if cc is not None and nxt_id in cc.content_ids:
             self.generated_content_counts[nxt_id] = self.generated_content_counts.get(nxt_id, 0) + 1
@@ -323,6 +402,38 @@ class DecodeState:
                                 if (step - s) < bpe_echo_window]
         if len(self.content_history) > 2 * cyclic_content_window:
             self.content_history = self.content_history[-cyclic_content_window:]
+        if nll is not None:
+            self.token_nll_history.append(float(nll))
+
+class CircuitBreaker:
+    """[F] 监控生成过程 -log P,高于 baseline × threshold → 临时压低 mixture ceiling。"""
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.baseline = None
+        self.active = False
+        self.hysteresis_left = 0
+    def set_baseline_from(self, nll_list: List[float]):
+        if len(nll_list) >= self.cfg.circuit_breaker_baseline_steps:
+            base_slice = nll_list[:self.cfg.circuit_breaker_baseline_steps]
+            self.baseline = sum(base_slice) / len(base_slice)
+    def update(self, nll_list: List[float]):
+        if self.baseline is None:
+            self.set_baseline_from(nll_list); return
+        K = self.cfg.circuit_breaker_consec_steps
+        if len(nll_list) < K: return
+        tail = nll_list[-K:]
+        thresh = self.baseline * self.cfg.circuit_breaker_threshold_ratio
+        if all(x > thresh for x in tail):
+            self.active = True
+            self.hysteresis_left = self.cfg.circuit_breaker_hysteresis
+        elif self.active:
+            self.hysteresis_left -= 1
+            if self.hysteresis_left <= 0:
+                self.active = False
+    def effective_ceiling(self, default_ceiling: float) -> float:
+        if self.active:
+            return min(default_ceiling, self.cfg.circuit_breaker_clamp_ceiling)
+        return default_ceiling
 
 class LLMBackbone(nn.Module):
     def __init__(self, name, dtype_name="bf16"):
@@ -630,15 +741,18 @@ class PrefixAligner(nn.Module):
         self.ln=nn.LayerNorm(d_LLM)
         self.scale_logit=nn.Parameter(torch.tensor(init_scale))
         self.register_buffer('_target_std',torch.tensor(1.0))
-        self._calibrated=False
+        # [D] _calibrated flag 确保一次性校准,load_memory 不会重算
+        self.register_buffer('_calibrated', torch.tensor(False))
     def calibrate(self, wte_fp32):
+        if bool(self._calibrated.item()):
+            return  # [D] idempotent
         with torch.no_grad():
             V = wte_fp32.shape[0]
-            si = min(5000, V)
-            idx = torch.randperm(V, device=wte_fp32.device)[:si]
+            stride = max(1, V // 5000)
+            idx = torch.arange(0, V, stride, device=wte_fp32.device)[:5000]
             sample = wte_fp32[idx]
             self._target_std.fill_(float(sample.std().item()))
-        self._calibrated=True
+            self._calibrated.fill_(True)
     def forward(self, prefix):
         normed=self.ln(prefix)
         scale=torch.sigmoid(self.scale_logit)*self._target_std
@@ -647,12 +761,16 @@ class PrefixAligner(nn.Module):
         return float(torch.sigmoid(self.scale_logit).item() * self._target_std.item())
 
 class ContentSemanticTailHead(nn.Module):
-    """[H-2] tied_extra + zero_init_tied:slot_heads[1] 零初始化。"""
+    """
+    [B] slot_1 分解: α × residual + β × LN(head_out),β 可学习。
+    head_out 由 MLP 产出,LN 限定其量级 ≈ sqrt(d_LLM)。
+    """
     def __init__(self, d_F, d_LLM, n_slots, hidden=1024, tied_extra=True,
-                 zero_init_tied=True):
+                 zero_init_tied=True, residual_dominant=True, beta_init=0.3):
         super().__init__()
         self.n_slots = n_slots; self.d_LLM = d_LLM; self.tied_extra = tied_extra
         self.zero_init_tied = zero_init_tied
+        self.residual_dominant = residual_dominant
         if n_slots == 0: return
         self.shared = nn.Sequential(
             nn.Linear(d_F, hidden), nn.SiLU(), nn.LayerNorm(hidden),
@@ -667,6 +785,14 @@ class ContentSemanticTailHead(nn.Module):
             else:
                 nn.init.normal_(head[0].weight, std=0.02); nn.init.zeros_(head[0].bias)
         self._n_distinct = n_distinct
+        # [B] 每个 rare-keyword slot (s>=1) 一个 β
+        if residual_dominant and n_slots >= 2:
+            self.residual_beta = nn.Parameter(
+                torch.full((n_slots - 1,), float(beta_init)))
+            self.residual_ln = nn.LayerNorm(d_LLM)
+        else:
+            self.residual_beta = None
+            self.residual_ln = None
 
     def _head_for_slot(self, s: int):
         if self.tied_extra:
@@ -679,6 +805,21 @@ class ContentSemanticTailHead(nn.Module):
         slots = [self._head_for_slot(s)(h) for s in range(self.n_slots)]
         return torch.stack(slots, dim=1)
 
+    def combine_with_residual(self, head_out, residual, alpha: float):
+        """
+        [B] slot_1..n-1 = α × residual + β × LN(head_out)
+            slot_0 保持纯 head_out(general content)
+        head_out: [B, n_slots, d_LLM]
+        residual: [B, n_slots, d_LLM] (residual[:,0] 为零)
+        """
+        if residual is None or self.residual_beta is None:
+            return head_out + (alpha * residual if residual is not None else 0.0)
+        out = head_out.clone()
+        for s in range(1, self.n_slots):
+            beta_s = self.residual_beta[s - 1]
+            out[:, s, :] = alpha * residual[:, s, :] + beta_s * self.residual_ln(head_out[:, s, :])
+        return out
+
 class ContextHead(nn.Module):
     def __init__(self, d_LLM):
         super().__init__()
@@ -690,28 +831,103 @@ class ContextHead(nn.Module):
         return self.proj(self.ln(x))
 
 class MemoryContextEncoder(nn.Module):
-    """[H-3] 单 orthogonal Linear(d_LLM→d_ctx, bias=False),无 LN 无非线性。"""
-    def __init__(self, d_LLM, d_ctx, hidden=256):
+    """
+    [A] Attention-pooled context encoder.
+      Q = learnable Parameter(1, d_ctx)
+      K,V = Linear(d_LLM, d_ctx)(hidden_states[content_positions])
+      ctx = attn(Q, K, V) + residual_weight × W_ortho(wte_centroid)
+    兜底:若 hidden_states 为 None 或无 content position,仅走 residual(orthogonal proj)。
+    """
+    def __init__(self, d_LLM, d_ctx, hidden=256, hybrid=True, hidden_weight=0.8,
+                 use_attention_pool=True, residual_weight=0.3, attn_dropout=0.0):
         super().__init__()
-        self.proj = nn.Linear(d_LLM, d_ctx, bias=False)
-        nn.init.orthogonal_(self.proj.weight, gain=1.0)
+        self.d_ctx = d_ctx
+        self.d_LLM = d_LLM
+        self.hybrid = hybrid
+        self.hidden_weight = hidden_weight
+        self.use_attention_pool = use_attention_pool
+        self.residual_weight = residual_weight
+        # Residual shortcut(JL-like 正交投影,始终保留),用于 fallback 与几何先验
+        self.proj_wte = nn.Linear(d_LLM, d_ctx, bias=False)
+        nn.init.orthogonal_(self.proj_wte.weight, gain=1.0)
+        if use_attention_pool:
+            self.attn_kv = nn.Linear(d_LLM, 2 * d_ctx, bias=False)
+            self.attn_ln = nn.LayerNorm(d_LLM)
+            self.attn_q = nn.Parameter(torch.randn(1, d_ctx) * (1.0 / math.sqrt(d_ctx)))
+            self.attn_out = nn.Linear(d_ctx, d_ctx, bias=False)
+            nn.init.orthogonal_(self.attn_out.weight, gain=1.0)
+            self.attn_dropout = nn.Dropout(attn_dropout) if attn_dropout > 0 else None
+        if hybrid and not use_attention_pool:
+            self.proj_hid = nn.Linear(d_LLM, d_ctx, bias=False)
+            nn.init.orthogonal_(self.proj_hid.weight, gain=1.0)
         self.back_proj = nn.Linear(d_ctx, d_LLM)
         nn.init.normal_(self.back_proj.weight, std=0.02)
         nn.init.zeros_(self.back_proj.bias)
 
-    def encode_from_tokens(self, content_token_ids, wte):
+    def _attention_pool(self, hidden_states, mask=None):
+        """hidden_states: [T, d_LLM]; mask: [T] bool; returns [d_ctx]."""
+        if hidden_states.dim() == 1:
+            hidden_states = hidden_states.unsqueeze(0)
+        h = self.attn_ln(hidden_states.float())
+        kv = self.attn_kv(h)
+        k, v = kv.chunk(2, dim=-1)
+        q = self.attn_q
+        scores = (q @ k.T) / math.sqrt(self.d_ctx)
+        if mask is not None:
+            scores = scores.masked_fill(~mask.bool().unsqueeze(0), -1e9)
+        attn = F.softmax(scores, dim=-1)
+        if self.attn_dropout is not None:
+            attn = self.attn_dropout(attn)
+        pooled = attn @ v
+        out = self.attn_out(pooled).squeeze(0)
+        return out
+
+    def encode_with_hidden(self, wte_centroid, hidden_states=None,
+                           hidden_mask=None):
+        """
+        [A] 主路径:
+          主分量 = attention_pool(hidden_states, mask)
+          残差分量 = proj_wte(wte_centroid)
+          ctx = normalize(main + residual_weight × residual)
+        """
+        dev = next(self.parameters()).device
+        residual = self.proj_wte(wte_centroid.float().to(dev))
+        if (self.use_attention_pool and hidden_states is not None
+                and hidden_states.numel() > 0):
+            main = self._attention_pool(hidden_states.to(dev), mask=hidden_mask)
+            out = main + self.residual_weight * residual
+        elif self.hybrid and hasattr(self, 'proj_hid'):
+            if hidden_states is not None and hidden_states.numel() > 0:
+                hid_mean = hidden_states.float().mean(0)
+                out = self.proj_hid(hid_mean) * self.hidden_weight + residual
+            else:
+                out = residual
+        else:
+            out = residual
+        return F.normalize(out, dim=-1, eps=1e-8)
+
+    def encode(self, wte_centroid, hidden_mean=None):
+        if hidden_mean is not None and hidden_mean.numel() > 0:
+            return self.encode_with_hidden(
+                wte_centroid, hidden_states=hidden_mean.unsqueeze(0))
+        return self.encode_with_hidden(wte_centroid, hidden_states=None)
+
+    def encode_from_tokens(self, content_token_ids, wte, hidden_states=None,
+                           hidden_mask=None):
         if not content_token_ids or wte is None: return None
         V = wte.shape[0]
         valid = [t for t in content_token_ids if 0 <= t < V]
         if not valid: return None
-        idx = torch.tensor(valid, device=wte.device, dtype=torch.long)
+        idx = torch.tensor(sorted(valid), device=wte.device, dtype=torch.long)
         centroid = wte.index_select(0, idx).float().mean(0)
-        h = self.proj(centroid)
-        return F.normalize(h, dim=-1, eps=1e-8).detach().contiguous()
+        return self.encode_with_hidden(
+            centroid, hidden_states=hidden_states, hidden_mask=hidden_mask
+        ).detach().contiguous()
 
     def encode_from_hidden(self, hidden_mean):
-        h = self.proj(hidden_mean.float())
-        return F.normalize(h, dim=-1, eps=1e-8)
+        return self.encode_with_hidden(
+            torch.zeros(self.d_LLM, device=next(self.parameters()).device),
+            hidden_states=hidden_mean.unsqueeze(0) if hidden_mean.dim() == 1 else hidden_mean)
 
     def decode(self, ctx_vec):
         return self.back_proj(ctx_vec)
@@ -725,9 +941,10 @@ class MixtureGateHead(nn.Module):
             nn.Linear(hidden, 1))
         nn.init.zeros_(self.net[-1].weight)
         nn.init.zeros_(self.net[-1].bias)
-    def forward(self, fiber_summary):
+    def forward(self, fiber_summary, override_ceiling: Optional[float] = None):
         raw = torch.sigmoid(self.net(fiber_summary)).squeeze(-1)
-        return self.floor + (self.ceiling - self.floor) * raw
+        ceil = override_ceiling if override_ceiling is not None else self.ceiling
+        return self.floor + (ceil - self.floor) * raw
 
 class ContentTokenClassifier:
     DEFAULT_STOPWORDS = frozenset({
@@ -781,6 +998,7 @@ class ContentTokenClassifier:
         'people','person','someone','anyone','everyone',
         'matter','matters','issue','issues','point','points',
         'number','numbers','amount','amounts','level','levels',
+        'particularly','especially','notably',
         'student','students','practice','practicing',
         'action','actions','role','roles','purpose','purposes',
         'nature','natures','character','characters','condition','conditions',
@@ -845,6 +1063,21 @@ class ContentTokenClassifier:
         self._strict_content_starter_tensor = None; self._filler_tensor = None
         self._function_tensor = None
         self._pure_function_tensor = None
+        # [D] 冻结分类器指纹
+        self._fingerprint = self._compute_fingerprint()
+
+    def _compute_fingerprint(self):
+        h = hashlib.sha256()
+        for name, s in [
+                ('content', self.content_ids), ('content_starter', self.content_starter_ids),
+                ('strict', self.strict_content_starter_ids),
+                ('filler', self.filler_ids), ('function', self.function_ids),
+                ('newline', self.newline_ids), ('punct', self.punct_ids),
+                ('word_starter', self.word_starter_ids)]:
+            h.update(name.encode()); h.update(b'|')
+            for t in sorted(s): h.update(str(int(t)).encode()); h.update(b',')
+            h.update(b';')
+        return h.hexdigest()
 
     def _mask_size(self): return int(self._V)
     def content_mask(self, device):
@@ -925,6 +1158,8 @@ class MemEntry:
     rare_keyword_ids: List[int] = field(default_factory=list)
     context_descriptor: Optional[torch.Tensor] = None
     strict_starter_ids: List[int] = field(default_factory=list)
+    # [C] cluster id from offline KMeans(inter-domain)
+    cluster_id: int = -1
 
 class _Node:
     __slots__=('leaf','ids','children','centers','depth')
@@ -1010,7 +1245,8 @@ class DirectionTree:
                 else:
                     for ch in nd.children: nb.append((ch,sc))
             nb.sort(key=lambda x:-x[1]); beams=nb[:bw]
-        return sorted(results.items(),key=lambda x:-x[1])
+        # 确定性:mid 升序 tie-break
+        return sorted(results.items(), key=lambda x: (-x[1], x[0]))
     def retrieve(self, qdir, bw=3):
         raw = self._beam_retrieve(qdir, bw)
         amm = self._amm_ref
@@ -1038,15 +1274,17 @@ class DirectionTree:
         a_d = amm.c.tree_rerank_dir_weight
         a_c = amm.c.tree_rerank_centroid_weight
         a_f = amm.c.tree_rerank_forward_weight
-        reranked = []
+        # [C] crowding: 先算每个 mid 的综合 score,再按 top-1 cluster 扣分
+        scored = []
         for mid, dir_score in raw:
             mem = self.store.get(mid)
             if mem is None:
-                reranked.append((mid, float(dir_score))); continue
+                scored.append((mid, float(dir_score), -1)); continue
             m_ids = amm._get_mem_scoring_ids(mem)
             m_ids = [t for t in m_ids if t < V_wte]
             if not m_ids:
-                reranked.append((mid, a_d * max(-1.0, min(1.0, float(dir_score)))))
+                scored.append((mid, a_d * max(-1.0, min(1.0, float(dir_score))),
+                               mem.cluster_id))
                 continue
             m_centroid = AMM._compute_idf_weighted_centroid(
                 m_ids, wte_n, corpus_idf, idf_floor)
@@ -1055,9 +1293,21 @@ class DirectionTree:
                 q_content, m_ids, wte_n, corpus_idf, idf_floor)
             dir_clamped = max(-1.0, min(1.0, float(dir_score)))
             combined = a_d * dir_clamped + a_c * cen_sim + a_f * fwd_sim
-            reranked.append((mid, combined))
-        reranked.sort(key=lambda x: -x[1])
-        return reranked
+            scored.append((mid, combined, mem.cluster_id))
+        # [C] crowding penalty:与 top-1 同 cluster 的条目保留分数,异 cluster 扣 λ
+        if amm.c.use_inter_domain_margin and scored:
+            top_cluster = None
+            for mid, sc, cid in scored:
+                if cid >= 0:
+                    top_cluster = cid; break
+            if top_cluster is not None:
+                lam = amm.c.retrieval_crowding_lambda
+                scored = [
+                    (mid, sc - lam if (cid >= 0 and cid != top_cluster) else sc, cid)
+                    for mid, sc, cid in scored
+                ]
+        scored.sort(key=lambda x: (-x[1], x[0]))
+        return [(mid, sc) for mid, sc, _ in scored]
     def remove(self, mid):
         if mid not in self.store: return
         del self.store[mid]; self._rm(self.root,mid); self._rebalance(self.root)
@@ -1092,22 +1342,29 @@ class DirectionTree:
         if ti!=si: errs.append(f"tree≠store: tree_only={ti-si}, store_only={si-ti}")
         if self.root.count()!=len(self.store): errs.append(f"count mismatch")
         return errs
-    def max_depth(self) -> int:
-        def _d(nd):
-            if nd.leaf: return nd.depth
-            if not nd.children: return nd.depth
-            return max(_d(c) for c in nd.children)
-        return _d(self.root)
-    def leaf_size_violations(self) -> List[Tuple[int, int]]:
-        viols = []
-        def _check(nd):
-            if nd.leaf:
-                if len(nd.ids) > self.c.tree_max_leaf:
-                    viols.append((nd.depth, len(nd.ids)))
-            else:
-                for c in nd.children: _check(c)
-        _check(self.root)
-        return viols
+    def recluster_semantic(self, K):
+        """[C] 对所有 memory 的 semantic_emb 做 KMeans,赋予 cluster_id。"""
+        mids = sorted(self.store.keys())
+        mems = [self.store[mid] for mid in mids]
+        embs = []
+        valid_mids = []
+        for mem in mems:
+            if mem.semantic_emb is not None:
+                v = mem.semantic_emb.detach().flatten().float()
+                if v.numel() > 0 and torch.isfinite(v).all():
+                    embs.append(v); valid_mids.append(mem.mid)
+        if len(embs) < K:
+            for mid in mids: self.store[mid].cluster_id = 0
+            return
+        X = torch.stack(embs, dim=0)
+        X_n = F.normalize(X, dim=-1, eps=1e-8)
+        assign, _ = _simple_kmeans(X_n, k=K, n_iter=20, seed=42)
+        assign_list = assign.detach().cpu().tolist()
+        seen = set()
+        for mid, a in zip(valid_mids, assign_list):
+            self.store[mid].cluster_id = int(a); seen.add(mid)
+        for mid in mids:
+            if mid not in seen: self.store[mid].cluster_id = 0
 
 class FiberAttn(nn.Module):
     def __init__(self, c):
@@ -1203,7 +1460,9 @@ class EmbBridge(nn.Module):
             n_slots=self._effective_tail_slots,
             hidden=c.tail_head_hidden,
             tied_extra=c.tail_head_tied_extra,
-            zero_init_tied=c.tail_head_zero_init_tied)
+            zero_init_tied=c.tail_head_zero_init_tied,
+            residual_dominant=c.tail_slot_residual_dominant,
+            beta_init=c.tail_slot_beta_init)
         self._effective_ctx_slots = c.effective_ctx_slots()
         if self._effective_ctx_slots > 0:
             self.context_heads = nn.ModuleList([
@@ -1214,6 +1473,8 @@ class EmbBridge(nn.Module):
         self._last_fiber_summary=None
         self._last_tail_slots=None
         self._last_context_slot=None
+        self._last_tail_pre_renorm = None   # [B] 测试探针
+        self._last_residual = None
 
     def _build_body_prefix(self, fibers, mem_mask, fiber_summary):
         qf_out = self.proj(fibers, mem_mask) + self.pe.unsqueeze(0)
@@ -1226,7 +1487,7 @@ class EmbBridge(nn.Module):
         qf_out = self.aligner(qf_out)
         return qf_out, bp_out, gate_val
 
-    def _apply_filler_projection_and_clamp(self, qf_out, filler_centroid):
+    def _apply_filler_projection_and_renorm(self, qf_out, filler_centroid):
         L = qf_out.shape[1]; filler_dir_used = False
         if self.c.use_filler_direction_projection and filler_centroid is not None:
             n_proj = min(self.c.filler_projection_last_slots, L)
@@ -1237,7 +1498,12 @@ class EmbBridge(nn.Module):
             comp = (qf_out * fd).sum(-1, keepdim=True)
             qf_out = qf_out - comp * fd * mask_slot
             filler_dir_used = True
-        if self.c.use_prefix_norm_clamp:
+        if self.c.use_slot_norm_renormalize:
+            target_std = self.aligner._target_std.item()
+            target_norm = target_std * math.sqrt(self.c.d_LLM)
+            cur_norms = qf_out.norm(dim=-1, keepdim=True).clamp(min=1e-8)
+            qf_out = qf_out * (target_norm / cur_norms)
+        elif self.c.use_prefix_norm_clamp:
             target_std = self.aligner._target_std.item()
             target_norm = target_std * math.sqrt(self.c.d_LLM)
             max_allowed = target_norm * self.c.prefix_norm_clamp_ratio
@@ -1278,24 +1544,39 @@ class EmbBridge(nn.Module):
             self._last_context_slot = None
 
         if (self._effective_tail_slots > 0 and fiber_summary is not None):
-            tail = self.tail_head(fiber_summary)
-            tail_aligned = self.aligner(tail)
+            tail_raw = self.tail_head(fiber_summary)
+            tail_aligned = self.aligner(tail_raw)
+            self._last_tail_pre_renorm = tail_aligned.detach()
             if (self.c.wte_residual_post_aligner
                     and rare_keyword_wte_residual is not None):
                 alpha = self.c.wte_residual_alpha
-                tail_aligned = tail_aligned + alpha * rare_keyword_wte_residual
+                # [B] 用 combine_with_residual 替代朴素加法
+                if self.c.tail_slot_residual_dominant:
+                    tail_aligned = self.tail_head.combine_with_residual(
+                        tail_aligned, rare_keyword_wte_residual, alpha)
+                else:
+                    tail_aligned = tail_aligned + alpha * rare_keyword_wte_residual
+                self._last_residual = rare_keyword_wte_residual.detach()
+            else:
+                self._last_residual = None
             pieces.append(tail_aligned)
             tail_slots_used = self._effective_tail_slots
-            self._last_tail_slots = tail_aligned.detach()
         else:
-            self._last_tail_slots = None
+            self._last_residual = None
 
         n_replace = ctx_slots_used + tail_slots_used
         if n_replace > 0 and n_replace <= L_total:
             replacement = torch.cat(pieces, dim=1)
             qf_out = torch.cat([qf_out[:, :L_total - n_replace, :], replacement], dim=1)
 
-        qf_out, filler_dir_used = self._apply_filler_projection_and_clamp(qf_out, filler_centroid)
+        qf_out, filler_dir_used = self._apply_filler_projection_and_renorm(qf_out, filler_centroid)
+
+        if tail_slots_used > 0:
+            tail_start = L_total - tail_slots_used
+            self._last_tail_slots = qf_out[:, tail_start:L_total].detach()
+        else:
+            self._last_tail_slots = None
+
         self._last_fiber_summary = (fiber_summary.detach()
                                     if fiber_summary is not None else None)
         self._last_inject_diag = {
@@ -1312,7 +1593,12 @@ class EmbBridge(nn.Module):
     def build_neutral_prefix(self, B, device):
         qf_out = self.pe.unsqueeze(0).expand(B, -1, -1).contiguous()
         qf_out = self.aligner(qf_out)
-        if self.c.use_prefix_norm_clamp:
+        if self.c.use_slot_norm_renormalize:
+            target_std = self.aligner._target_std.item()
+            target_norm = target_std * math.sqrt(self.c.d_LLM)
+            cur_norms = qf_out.norm(dim=-1, keepdim=True).clamp(min=1e-8)
+            qf_out = qf_out * (target_norm / cur_norms)
+        elif self.c.use_prefix_norm_clamp:
             target_std = self.aligner._target_std.item()
             target_norm = target_std * math.sqrt(self.c.d_LLM)
             max_allowed = target_norm * self.c.prefix_norm_clamp_ratio
@@ -1431,6 +1717,7 @@ class AMM(nn.Module):
         self._last_query_ids = None
         self._last_query_mask = None
         self._content_classifier = None
+        self._writes_since_recluster = 0
 
     def surprise_proxy(self, logits, tgt):
         nll=-F.log_softmax(logits,-1).gather(2,tgt.unsqueeze(-1)).squeeze(-1)
@@ -1453,7 +1740,9 @@ class AMM(nn.Module):
         N = len(self.tree.store)
         if N == 0: return {}
         df = {}
-        for mem in self.tree.store.values():
+        # [D] 确定性:按 mid 排序迭代
+        for mid in sorted(self.tree.store.keys()):
+            mem = self.tree.store[mid]
             label_set = (set(t for t in mem.content_token_ids
                              if t in content_classifier.content_starter_ids)
                          if content_classifier is not None else set(mem.content_token_ids))
@@ -1464,7 +1753,7 @@ class AMM(nn.Module):
     def _compute_idf_weighted_centroid(token_ids, wte_normed, corpus_idf, idf_floor=0.1):
         if not token_ids or wte_normed is None: return None
         V = wte_normed.shape[0]
-        valid = [t for t in token_ids if t < V]
+        valid = sorted([t for t in token_ids if t < V])  # [D] 排序
         if not valid: return None
         if corpus_idf is not None and len(corpus_idf) > 0:
             weights = torch.tensor(
@@ -1479,8 +1768,8 @@ class AMM(nn.Module):
     def _compute_forward_hungarian(self, query_ids, mem_ids, wte_normed, query_idf=None, idf_floor=0.1):
         if not query_ids or not mem_ids: return 0.0
         V = wte_normed.shape[0]
-        q_valid = [q for q in query_ids if q < V]
-        m_valid = [m for m in mem_ids if m < V]
+        q_valid = sorted([q for q in query_ids if q < V])
+        m_valid = sorted([m for m in mem_ids if m < V])
         if not q_valid or not m_valid: return 0.0
         n_q, n_m = len(q_valid), len(m_valid)
         q_vecs = wte_normed[q_valid]; m_vecs = wte_normed[m_valid]
@@ -1508,8 +1797,8 @@ class AMM(nn.Module):
     def _compute_forward_maxsim(query_ids, mem_ids, wte_normed, query_idf=None, idf_floor=0.1):
         if not query_ids or not mem_ids: return 0.0
         V = wte_normed.shape[0]
-        q_valid = [q for q in query_ids if q < V]
-        m_valid = [m for m in mem_ids if m < V]
+        q_valid = sorted([q for q in query_ids if q < V])
+        m_valid = sorted([m for m in mem_ids if m < V])
         if not q_valid or not m_valid: return 0.0
         q_vecs = wte_normed[q_valid]; m_vecs = wte_normed[m_valid]
         sim = q_vecs @ m_vecs.T
@@ -1526,8 +1815,8 @@ class AMM(nn.Module):
     def _compute_backward_maxsim(query_ids, mem_ids, wte_normed, query_idf=None, idf_floor=0.1):
         if not query_ids or not mem_ids: return 0.0
         V = wte_normed.shape[0]
-        q_valid = [q for q in query_ids if q < V]
-        m_valid = [m for m in mem_ids if m < V]
+        q_valid = sorted([q for q in query_ids if q < V])
+        m_valid = sorted([m for m in mem_ids if m < V])
         if not q_valid or not m_valid: return 0.0
         q_vecs = wte_normed[q_valid]; m_vecs = wte_normed[m_valid]
         sim = q_vecs @ m_vecs.T
@@ -1552,8 +1841,8 @@ class AMM(nn.Module):
     def _count_strict_overlap_matches(q_strict_ids, m_strict_ids, wte_normed, sim_threshold):
         if not q_strict_ids or not m_strict_ids or wte_normed is None: return 0
         V = wte_normed.shape[0]
-        q_valid = [t for t in q_strict_ids if t < V]
-        m_valid = [t for t in m_strict_ids if t < V]
+        q_valid = sorted([t for t in q_strict_ids if t < V])
+        m_valid = sorted([t for t in m_strict_ids if t < V])
         if not q_valid or not m_valid: return 0
         dev = wte_normed.device
         q_vecs = wte_normed[torch.tensor(q_valid, device=dev)]
@@ -1603,26 +1892,41 @@ class AMM(nn.Module):
                             if ex.semantic_emb is not None:
                                 ex.semantic_emb=((1-alpha)*ex.semantic_emb.to(dev)+alpha*sem_emb).detach().clone()
                             else: ex.semantic_emb=sem_emb.detach().clone()
-                        if ct_ids: ex.content_token_ids=list(set(ex.content_token_ids+ct_ids))
-                        if exp_ids: ex.expanded_content_ids=list(set(ex.expanded_content_ids+exp_ids))
-                        if strict_ids: ex.strict_starter_ids=list(set(ex.strict_starter_ids+strict_ids))
+                        # [D] 确定性合并
+                        if ct_ids: ex.content_token_ids=_sorted_set(ex.content_token_ids+ct_ids)
+                        if exp_ids: ex.expanded_content_ids=_sorted_set(ex.expanded_content_ids+exp_ids)
+                        if strict_ids: ex.strict_starter_ids=_sorted_set(ex.strict_starter_ids+strict_ids)
                         if context_descriptor is not None:
                             ex.context_descriptor = context_descriptor.detach().clone().contiguous()
                         ex.rare_keyword_ids = []
-                        self.time+=1; return ex
+                        self.time+=1
+                        self._writes_since_recluster += 1
+                        return ex
         m=MemEntry(mid=self.tree.nid,
                    base=x.detach().clone().contiguous(),
                    fiber=f.detach().clone().contiguous(),
                    dirn=d.detach().clone().contiguous(),
                    surprise=s.item(),ts=self.time,last=self.time,
-                   source_text=source_text,content_token_ids=ct_ids,
+                   source_text=source_text,content_token_ids=_sorted_set(ct_ids),
                    semantic_emb=(sem_emb.detach().clone().contiguous()
                                   if sem_emb is not None else None),
-                   expanded_content_ids=exp_ids, rare_keyword_ids=[],
-                   strict_starter_ids=strict_ids,
+                   expanded_content_ids=_sorted_set(exp_ids),
+                   rare_keyword_ids=[],
+                   strict_starter_ids=_sorted_set(strict_ids),
                    context_descriptor=(context_descriptor.detach().clone().contiguous()
                                         if context_descriptor is not None else None))
-        self.tree.nid+=1; self.tree.insert(m); self.time+=1; return m
+        self.tree.nid+=1; self.tree.insert(m); self.time+=1
+        self._writes_since_recluster += 1
+        return m
+
+    def maybe_recluster(self, force=False):
+        """[C] 批量写入后 re-cluster semantic_emb。"""
+        if not self.c.use_inter_domain_margin: return
+        K = self.c.inter_domain_kmeans_k
+        if force or self._writes_since_recluster >= self.c.mem_recluster_every_writes:
+            if len(self.tree.store) >= K:
+                self.tree.recluster_semantic(K)
+            self._writes_since_recluster = 0
 
     def _preserve_min_keep(self, pass_mask, scores, min_keep, diag):
         total = pass_mask.numel()
@@ -1670,7 +1974,8 @@ class AMM(nn.Module):
         for b in range(B):
             n_store=len(self.tree.store)
             if n_store<=flat_thresh:
-                mids=list(self.tree.store.keys()); diag.was_flat_scan=True
+                mids=sorted(self.tree.store.keys())  # [D] 确定性
+                diag.was_flat_scan=True
             else:
                 scored=self.tree.retrieve(qdir[b].detach(),bw)
                 mids=[s[0] for s in scored[:recall_k]]
@@ -1893,9 +2198,20 @@ class AMM(nn.Module):
                     raw_composite = raw_composite[keep_local]
                     C = len(mems)
             diag.n_after_mean_center = C
+            # [C] cluster-crowding 二次 rerank
+            cluster_adjust = torch.zeros(C, device=dev)
+            if self.c.use_inter_domain_margin and C >= 2:
+                dom_local = int(rerank_scores.argmax().item())
+                dom_cluster = mems[dom_local].cluster_id
+                if dom_cluster >= 0:
+                    for mi, mem in enumerate(mems):
+                        if mi == dom_local: continue
+                        if mem.cluster_id >= 0 and mem.cluster_id != dom_cluster:
+                            cluster_adjust[mi] = -self.c.retrieval_crowding_lambda
             dominant_mid = None; non_dominant_mids = []; non_dom_weights = {}
             if C >= 1:
-                final_rank = (0.4 * rerank_scores + 0.4 * centroid_scores + 0.2 * forward_t)
+                final_rank = (0.4 * rerank_scores + 0.4 * centroid_scores
+                              + 0.2 * forward_t + cluster_adjust)
                 dom_idx = int(final_rank.argmax().item())
                 dominant_mid = mems[dom_idx].mid
                 if C > 1:
@@ -1913,6 +2229,7 @@ class AMM(nn.Module):
                 rerank_scores = rerank_scores[top_idx]
                 forward_t = forward_t[top_idx]; bidi_min_t = bidi_min_t[top_idx]
                 sem_sim_t = sem_sim_t[top_idx]; centroid_scores = centroid_scores[top_idx]
+                cluster_adjust = cluster_adjust[top_idx] if cluster_adjust.numel() > 0 else cluster_adjust
                 C = topk
             for mi, mem in enumerate(mems):
                 diag.per_memory_forward_maxsim[mem.mid] = forward_t[mi].item()
@@ -1930,7 +2247,8 @@ class AMM(nn.Module):
                 transported = transported * ret_s.unsqueeze(-1)
             if update_stats:
                 for m in mems: m.last = self.time; m.cnt += 1
-            final_scores = (0.4 * rerank_scores + 0.4 * centroid_scores + 0.2 * forward_t)
+            final_scores = (0.4 * rerank_scores + 0.4 * centroid_scores
+                            + 0.2 * forward_t + cluster_adjust)
             w = F.softmax(final_scores / self.c.retrieval_weight_temperature, dim=0)
             fs = (transported * w.unsqueeze(-1)).sum(0)
             batch_mw = [(m.mid, w[mi].item()) for mi, m in enumerate(mems)]
@@ -1963,7 +2281,8 @@ class AMM(nn.Module):
 
     def decay(self):
         rm = []
-        for mid, m in self.tree.store.items():
+        for mid in sorted(self.tree.store.keys()):
+            m = self.tree.store[mid]
             dt = torch.tensor([self.time - m.last], **_dev(m.base))
             cnt = torch.tensor([m.cnt], **_dev(m.base))
             with torch.no_grad():
@@ -1974,7 +2293,7 @@ class AMM(nn.Module):
         return len(rm)
 
     def consolidate(self):
-        ms = list(self.tree.store.values())
+        ms = [self.tree.store[mid] for mid in sorted(self.tree.store.keys())]
         if len(ms) < 2: return 0
         merged = set()
         for i in range(len(ms)):
@@ -1997,9 +2316,9 @@ class AMM(nn.Module):
                     ms[i].surprise = max(ms[i].surprise, ms[j].surprise); ms[i].version += 1
                     if ms[j].source_text and not ms[i].source_text:
                         ms[i].source_text = ms[j].source_text
-                    ms[i].content_token_ids = list(set(ms[i].content_token_ids + ms[j].content_token_ids))
-                    ms[i].expanded_content_ids = list(set(ms[i].expanded_content_ids + ms[j].expanded_content_ids))
-                    ms[i].strict_starter_ids = list(set(ms[i].strict_starter_ids + ms[j].strict_starter_ids))
+                    ms[i].content_token_ids = _sorted_set(ms[i].content_token_ids + ms[j].content_token_ids)
+                    ms[i].expanded_content_ids = _sorted_set(ms[i].expanded_content_ids + ms[j].expanded_content_ids)
+                    ms[i].strict_starter_ids = _sorted_set(ms[i].strict_starter_ids + ms[j].strict_starter_ids)
                     if ms[i].semantic_emb is not None and ms[j].semantic_emb is not None:
                         ms[i].semantic_emb = ((ms[i].semantic_emb*wi + ms[j].semantic_emb*wj) / t).detach().clone().contiguous()
                     elif ms[j].semantic_emb is not None:
@@ -2051,7 +2370,12 @@ class MemLLM(nn.Module):
         self.vocab_proj = MemoryVocabProjector(c.d_F, c.d_LLM)
         if c.use_memory_context_encoder:
             self.memory_context_encoder = MemoryContextEncoder(
-                c.d_LLM, c.d_ctx, hidden=c.context_encoder_hidden)
+                c.d_LLM, c.d_ctx, hidden=c.context_encoder_hidden,
+                hybrid=c.context_encoder_hybrid,
+                hidden_weight=c.context_hybrid_hidden_weight,
+                use_attention_pool=c.context_encoder_use_attention_pool,
+                residual_weight=c.context_encoder_residual_weight,
+                attn_dropout=c.context_encoder_attn_dropout)
         else:
             self.memory_context_encoder = None
         if c.use_mixture_decoding:
@@ -2064,7 +2388,9 @@ class MemLLM(nn.Module):
         self.tok = None; self._degen_guard = None; self.content_classifier = None
         self._wte_neighbor_cache = None
         self._wte_normed = None
+        self._wte_mean_fp32 = None
         self._filler_centroid = None
+        self._classifier_fingerprint = None  # [D]
 
     def load(self, name=None, dtype_name=None):
         name = name or self.c.llm_name
@@ -2081,14 +2407,21 @@ class MemLLM(nn.Module):
             if self.c.use_memory_context_encoder:
                 self.memory_context_encoder = MemoryContextEncoder(
                     self.c.d_LLM, self.c.d_ctx,
-                    hidden=self.c.context_encoder_hidden).to(dev)
+                    hidden=self.c.context_encoder_hidden,
+                    hybrid=self.c.context_encoder_hybrid,
+                    hidden_weight=self.c.context_hybrid_hidden_weight,
+                    use_attention_pool=self.c.context_encoder_use_attention_pool,
+                    residual_weight=self.c.context_encoder_residual_weight,
+                    attn_dropout=self.c.context_encoder_attn_dropout).to(dev)
         self.layer_pool = AdaptiveLayerPool(self.backbone.n_layers + 1, self.c.d_LLM).to(dev)
         self.content_classifier = ContentTokenClassifier(
             self.tok, self.c, vocab_size=self.backbone.vocab_size)
+        self._classifier_fingerprint = self.content_classifier._fingerprint
         self._degen_guard = DegenerationGuard(self.tok, self.c, self.content_classifier)
         wte_fp32 = self.backbone.input_embedding_weight().to(dev)
-        self.bridge.aligner.calibrate(wte_fp32)
+        self.bridge.aligner.calibrate(wte_fp32)  # [D] idempotent
         self._wte_normed = F.normalize(wte_fp32.detach(), dim=-1, eps=1e-8)
+        self._wte_mean_fp32 = wte_fp32.mean(0).detach().contiguous()
         self.amm.wte_normed = self._wte_normed
         self.amm._content_classifier = self.content_classifier
         amm_ref = self.amm
@@ -2102,45 +2435,7 @@ class MemLLM(nn.Module):
         self.backbone.register_forward_pre_hook(_capture_query_ids)
         self._build_wte_neighbor_cache()
         self._compute_filler_centroid()
-        # [J-1] Auto-load trained non-backbone weights if env points to a ckpt
-        ckpt = os.environ.get("AMS_TRAINED_WEIGHTS", "").strip()
-        if ckpt and os.path.isfile(ckpt):
-            self._load_trainable_weights(ckpt)
         return self
-
-    def _load_trainable_weights(self, path):
-        """[J-1] Load checkpoint produced by training run.
-        Only loads keys whose name does NOT start with 'backbone.'.
-        Missing / unexpected keys are logged but not fatal."""
-        try:
-            state = torch.load(path, map_location='cpu', weights_only=False)
-        except Exception as e:
-            print(f"  [J-1] ckpt load failed: {e}"); return
-        sd = state.get('state_dict', state) if isinstance(state, dict) else state
-        dev = next(self.parameters()).device
-        trainable = {n: p for n, p in self.named_parameters()
-                     if p.requires_grad and not n.startswith('backbone')}
-        loaded = 0; skipped = 0
-        for n, p in trainable.items():
-            if n in sd:
-                src = sd[n]
-                if src.shape == p.shape:
-                    with torch.no_grad():
-                        p.data.copy_(src.to(dev, dtype=p.dtype))
-                    loaded += 1
-                else:
-                    skipped += 1
-            else:
-                skipped += 1
-        # Also load buffers (e.g. aligner._target_std)
-        buf_loaded = 0
-        for n, b in self.named_buffers():
-            if n.startswith('backbone'): continue
-            if n in sd and sd[n].shape == b.shape:
-                with torch.no_grad():
-                    b.data.copy_(sd[n].to(dev, dtype=b.dtype))
-                buf_loaded += 1
-        print(f"  [J-1] ckpt '{path}': params loaded={loaded}, skipped={skipped}, buffers={buf_loaded}")
 
     def _compute_filler_centroid(self):
         if self.content_classifier is None or self.backbone is None:
@@ -2189,7 +2484,7 @@ class MemLLM(nn.Module):
         for tid in content_ids:
             neighbors = self._wte_neighbor_cache.get(tid, [])
             expanded.update(neighbors)
-        return list(expanded)
+        return sorted(expanded)  # [D]
 
     def _compute_rare_keyword_ids(self, mem, corpus_idf):
         if not corpus_idf: return []
@@ -2200,7 +2495,7 @@ class MemLLM(nn.Module):
         if not candidates:
             candidates = [t for t in mem.content_token_ids if t in cc.content_ids]
         if not candidates: return []
-        # [H-4] stable tie-break with token id as secondary key
+        # [D] 确定性排序
         ranked = sorted(candidates,
                         key=lambda t: (-corpus_idf.get(t, self.c.idf_floor), t))
         return ranked[:self.c.keyword_tail_top_k]
@@ -2209,7 +2504,8 @@ class MemLLM(nn.Module):
         if not self.amm.tree.store: return
         corpus_idf = self.amm._compute_corpus_idf(self.content_classifier)
         if not corpus_idf: return
-        for mem in self.amm.tree.store.values():
+        for mid in sorted(self.amm.tree.store.keys()):
+            mem = self.amm.tree.store[mid]
             mem.rare_keyword_ids = self._compute_rare_keyword_ids(mem, corpus_idf)
 
     def _check_guidance_active(self, diag) -> bool:
@@ -2233,7 +2529,7 @@ class MemLLM(nn.Module):
             mw = diag.batch_mem_weights[b]
             mw_sorted = [(mid, w) for mid, w in mw if w > 0
                          and mid in self.amm.tree.store]
-            mw_sorted.sort(key=lambda x: -x[1])
+            mw_sorted.sort(key=lambda x: (-x[1], x[0]))
             ctx_sum_d_llm = torch.zeros(self.c.d_LLM, device=dev)
             w_sum = 0.0
             for mid, w in mw_sorted:
@@ -2274,7 +2570,7 @@ class MemLLM(nn.Module):
         if not any_populated: return None
         return [torch.stack(slot_list) for slot_list in out_slots]
 
-    def _compute_rare_keyword_wte_residual(self, diag):
+    def _compute_rare_keyword_wte_residual(self, diag, exclude_token_ids: Optional[Set[int]] = None):
         if not self.c.use_wte_residual_tail:
             return None
         n_slots = self.bridge._effective_tail_slots
@@ -2284,6 +2580,10 @@ class MemLLM(nn.Module):
         dev = next(self.parameters()).device
         wte_fp32 = self.backbone.input_embedding_weight().to(dev)
         V_wte = wte_fp32.shape[0]
+        wte_mean = (self._wte_mean_fp32.to(dev)
+                    if (self.c.wte_residual_centered and self._wte_mean_fp32 is not None)
+                    else None)
+        exclude = exclude_token_ids if exclude_token_ids else set()
         residual = torch.zeros(B, n_slots, self.c.d_LLM, device=dev)
         any_nonzero = False
         for b in range(B):
@@ -2294,12 +2594,12 @@ class MemLLM(nn.Module):
                 for mid, w in mw:
                     if w <= 0 or mid not in self.amm.tree.store: continue
                     mem = self.amm.tree.store[mid]
-                    if len(mem.rare_keyword_ids) > kw_rank:
-                        tid = mem.rare_keyword_ids[kw_rank]
-                        if tid < V_wte:
-                            kw_weights[tid] = kw_weights.get(tid, 0.0) + w
+                    available = [t for t in mem.rare_keyword_ids
+                                 if t not in exclude and t < V_wte]
+                    if len(available) > kw_rank:
+                        tid = available[kw_rank]
+                        kw_weights[tid] = kw_weights.get(tid, 0.0) + w
                 if not kw_weights: continue
-                # [H-4] sort ids for determinism
                 ids_sorted = sorted(kw_weights.keys())
                 weights = torch.tensor(
                     [kw_weights[t] for t in ids_sorted],
@@ -2307,6 +2607,8 @@ class MemLLM(nn.Module):
                 weights = weights / weights.sum().clamp(min=1e-8)
                 vecs = wte_fp32[torch.tensor(ids_sorted, device=dev)]
                 centroid = (vecs * weights.unsqueeze(1)).sum(0)
+                if wte_mean is not None:
+                    centroid = centroid - wte_mean
                 residual[b, slot_idx, :] = centroid
                 any_nonzero = True
         if not any_nonzero: return None
@@ -2334,7 +2636,6 @@ class MemLLM(nn.Module):
         return logit_mem
 
     def fwd(self, ids, mask, prefix=None):
-        """[H-1] content/suppression bias 仅在此路径加(单点);FS 独立于 dampen。"""
         out = self.backbone(ids, mask, prefix=prefix)
         if (prefix is None or self.training or self.content_classifier is None):
             return out
@@ -2342,8 +2643,14 @@ class MemLLM(nn.Module):
         if prompt_len is None: return out
         step = int(ids.shape[1]) - int(prompt_len)
         if step < 0: return out
+
         guidance_active = _get_prefix_guidance(prefix)
-        if not guidance_active: return out
+        content_bias = getattr(prefix, _PREFIX_CONTENT_BIAS_ATTR, None)
+        suppression_bias = getattr(prefix, _PREFIX_SUPPRESSION_BIAS_ATTR, None)
+        has_biases = (content_bias is not None) or (suppression_bias is not None)
+
+        if not guidance_active and not has_biases:
+            return out
 
         logits = out['logits']; dev = logits.device
         V_lg = logits.shape[-1]
@@ -2351,24 +2658,54 @@ class MemLLM(nn.Module):
         mod_last = False
         cc = self.content_classifier
 
-        if (self.c.use_fwd_path_hard_mask
-                and self.c.use_early_content_starter_hard_mask
-                and step < self.c.early_starter_hard_mask_steps):
-            starter_mask = cc.content_starter_mask(dev)
-            V = min(V_lg, starter_mask.shape[0])
-            mask_val = float(self.c.fwd_path_hard_mask_value)
-            mask_bool = starter_mask[:V].bool().view(1, 1, V)
-            last_V = last[:, :, :V]
-            last[:, :, :V] = torch.where(
-                mask_bool, last_V, torch.full_like(last_V, mask_val))
-            mod_last = True
+        if guidance_active:
+            if (self.c.use_fwd_path_hard_mask
+                    and self.c.use_early_content_starter_hard_mask
+                    and step < self.c.early_starter_hard_mask_steps):
+                starter_mask = cc.content_starter_mask(dev)
+                V = min(V_lg, starter_mask.shape[0])
+                mask_val = float(self.c.fwd_path_hard_mask_value)
+                mask_bool = starter_mask[:V].bool().view(1, 1, V)
+                last_V = last[:, :, :V]
+                last[:, :, :V] = torch.where(
+                    mask_bool, last_V, torch.full_like(last_V, mask_val))
+                mod_last = True
 
-        content_bias = getattr(prefix, _PREFIX_CONTENT_BIAS_ATTR, None)
-        suppression_bias = getattr(prefix, _PREFIX_SUPPRESSION_BIAS_ATTR, None)
-        need_fs = (self.c.use_fwd_function_suppression and cc is not None)
-        if self.c.use_fwd_path_content_bias and (content_bias is not None
-                                                 or suppression_bias is not None
-                                                 or need_fs):
+            if self.c.use_fwd_function_suppression and cc is not None:
+                logits_std_fs = logits.std().item()
+                eos_id = self.tok.eos_token_id
+                fn_mask = cc.pure_function_mask(dev, eos_id=eos_id)
+                V_fn = min(V_lg, fn_mask.shape[0])
+                step_scale_fn = max(self.c.fwd_function_suppression_floor,
+                                    1.0 - step * self.c.fwd_function_suppression_decay)
+                unit_fn = (logits_std_fs * self.c.content_bias_std_multiplier
+                           if self.c.use_adaptive_content_bias_scale else 1.0)
+                fs_dampen = (self.c.fwd_path_bias_dampen
+                             if self.c.fwd_function_suppression_apply_dampen else 1.0)
+                scale_fn = (unit_fn * self.c.fwd_function_suppression_scale
+                            * step_scale_fn * fs_dampen)
+                last[:, 0, :V_fn] = last[:, 0, :V_fn] - fn_mask[:V_fn].to(dev) * scale_fn
+                mod_last = True
+
+            if self.c.use_no_repeat_bigram and step >= 2:
+                B = ids.shape[0]
+                pen = self.c.no_repeat_bigram_penalty
+                for b in range(B):
+                    gen_ids_b = ids[b, int(prompt_len):].tolist()
+                    if len(gen_ids_b) < 2: continue
+                    last_tok = gen_ids_b[-1]
+                    penalize_nexts = set()
+                    for i in range(len(gen_ids_b) - 1):
+                        if gen_ids_b[i] == last_tok:
+                            penalize_nexts.add(gen_ids_b[i + 1])
+                    if penalize_nexts:
+                        pen_ids = [t for t in penalize_nexts if 0 <= t < V_lg]
+                        if pen_ids:
+                            pen_t = torch.tensor(pen_ids, device=dev, dtype=torch.long)
+                            last[b, 0, pen_t] = last[b, 0, pen_t] - pen
+                            mod_last = True
+
+        if self.c.use_fwd_path_content_bias and has_biases:
             logits_std = logits.std().item()
             dampen = self.c.fwd_path_bias_dampen
             if content_bias is not None:
@@ -2391,37 +2728,6 @@ class MemLLM(nn.Module):
                 scale_sup = unit_sup * self.c.suppression_bias_scale * step_scale_sup * dampen
                 last[:, 0, :V] = last[:, 0, :V] - sb * scale_sup
                 mod_last = True
-            if need_fs:
-                eos_id = self.tok.eos_token_id
-                fn_mask = cc.pure_function_mask(dev, eos_id=eos_id)
-                V_fn = min(V_lg, fn_mask.shape[0])
-                step_scale_fn = max(self.c.fwd_function_suppression_floor,
-                                    1.0 - step * self.c.fwd_function_suppression_decay)
-                unit_fn = (logits_std * self.c.content_bias_std_multiplier
-                           if self.c.use_adaptive_content_bias_scale else 1.0)
-                fs_dampen = dampen if self.c.fwd_function_suppression_apply_dampen else 1.0
-                scale_fn = (unit_fn * self.c.fwd_function_suppression_scale
-                            * step_scale_fn * fs_dampen)
-                last[:, 0, :V_fn] = last[:, 0, :V_fn] - fn_mask[:V_fn].to(dev) * scale_fn
-                mod_last = True
-
-        if self.c.use_no_repeat_bigram and step >= 2:
-            B = ids.shape[0]
-            pen = self.c.no_repeat_bigram_penalty
-            for b in range(B):
-                gen_ids_b = ids[b, int(prompt_len):].tolist()
-                if len(gen_ids_b) < 2: continue
-                last_tok = gen_ids_b[-1]
-                penalize_nexts = set()
-                for i in range(len(gen_ids_b) - 1):
-                    if gen_ids_b[i] == last_tok:
-                        penalize_nexts.add(gen_ids_b[i + 1])
-                if penalize_nexts:
-                    pen_ids = [t for t in penalize_nexts if 0 <= t < V_lg]
-                    if pen_ids:
-                        pen_t = torch.tensor(pen_ids, device=dev, dtype=torch.long)
-                        last[b, 0, pen_t] = last[b, 0, pen_t] - pen
-                        mod_last = True
 
         if mod_last:
             new_logits = logits.clone()
@@ -2454,6 +2760,32 @@ class MemLLM(nn.Module):
                 else: result.append(hidden_states[b].mean(0))
         return torch.stack(result)
 
+    def _extract_content_hidden_per_b(self, hidden_states, ids, mask):
+        """[A] 为 MemoryContextEncoder 提供逐条 content-position hidden states。"""
+        B, T, D = hidden_states.shape
+        cc = self.content_classifier
+        out_list = []
+        for b in range(B):
+            positions = []
+            T_valid = min(T, ids.shape[1]) if ids is not None else T
+            for pos in range(T_valid):
+                if mask is not None and mask.shape[1] > pos and mask[b, pos].item() == 0:
+                    continue
+                if ids is not None:
+                    tid = ids[b, pos].item()
+                    if cc is not None and tid in cc.content_ids:
+                        positions.append(min(pos, T - 1))
+            if not positions:
+                if mask is not None:
+                    valid_len = min(int(mask[b].sum().item()), T); valid_len = max(valid_len, 1)
+                    out_list.append(hidden_states[b, :valid_len])
+                else:
+                    out_list.append(hidden_states[b])
+            else:
+                pos_t = torch.tensor(positions, device=hidden_states.device)
+                out_list.append(hidden_states[b, pos_t])
+        return out_list
+
     def extract_state(self, hs, mask=None, pl=0):
         pooled = self.layer_pool(hs)
         if pl > 0: pooled = pooled[:, pl:]
@@ -2462,13 +2794,16 @@ class MemLLM(nn.Module):
         xq, fq = self.bridge.ext(pooled, m)
         return pooled, xq, fq
 
-    def _build_token_bias_from_memories(self, mem_weight_list, q_content_ids, corpus_idf=None):
+    def _build_token_bias_from_memories(self, mem_weight_list, q_content_ids,
+                                        corpus_idf=None, relevance_floor=None):
+        """[E] 允许按 call site 指定 relevance_floor(top-1 vs rest)。"""
         V = self.c.vocab_size; dev = next(self.parameters()).device
         cc = self.content_classifier; wte_n = self._wte_normed
-        floor = self.c.content_bias_relevance_floor
+        floor = (relevance_floor if relevance_floor is not None
+                 else self.c.content_bias_relevance_floor)
         concentration = self.c.content_bias_concentration
         bias = torch.zeros(V, device=dev)
-        q_valid = [i for i in q_content_ids if i < wte_n.shape[0]]
+        q_valid = sorted([i for i in q_content_ids if i < wte_n.shape[0]])
         q_vecs = wte_n[q_valid] if q_valid else None
         use_idf = (self.c.use_idf_content_bias and corpus_idf is not None
                    and len(corpus_idf) > 0)
@@ -2479,11 +2814,11 @@ class MemLLM(nn.Module):
             mem = self.amm.tree.store[mid]
             scoring_ids = self.amm._get_mem_scoring_ids(mem)
             if cc is not None and self.c.use_word_starter_filter:
-                valid_ids = [t for t in scoring_ids if t < V and t < wte_n.shape[0]
-                             and t in cc.content_starter_ids]
+                valid_ids = sorted([t for t in scoring_ids if t < V and t < wte_n.shape[0]
+                                    and t in cc.content_starter_ids])
             elif cc is not None:
-                valid_ids = [t for t in scoring_ids if t < V and t < wte_n.shape[0]
-                             and t in cc.content_ids]
+                valid_ids = sorted([t for t in scoring_ids if t < V and t < wte_n.shape[0]
+                                    and t in cc.content_ids])
             else: valid_ids = []
             if not valid_ids: continue
             if q_valid and q_vecs is not None:
@@ -2503,6 +2838,7 @@ class MemLLM(nn.Module):
         return bias
 
     def _build_content_bias(self, diag, query_content_ids_per_batch):
+        """[E] top-1 专属 + top-k 兜底。"""
         V = self.c.vocab_size; dev = next(self.parameters()).device
         B = len(diag.batch_mem_weights)
         bias = torch.zeros(B, V, device=dev)
@@ -2510,13 +2846,33 @@ class MemLLM(nn.Module):
         corpus_idf = None
         if self.c.use_idf_content_bias and cc is not None:
             corpus_idf = self.amm._compute_corpus_idf(cc)
+        use_top1 = self.c.use_top1_exclusive_content_bias
         for b, mem_weights in enumerate(diag.batch_mem_weights):
             q_ids = (query_content_ids_per_batch[b]
                      if query_content_ids_per_batch and b < len(query_content_ids_per_batch)
                      else [])
             reweighted = [(mid, w * (diag.per_memory_bidi_min.get(mid, 0.5) ** 2))
                           for mid, w in mem_weights]
-            b_bias = self._build_token_bias_from_memories(reweighted, q_ids, corpus_idf)
+            if not reweighted:
+                continue
+            if use_top1 and len(reweighted) >= 1:
+                reweighted.sort(key=lambda x: (-x[1], x[0]))
+                top1 = reweighted[:1]
+                rest = reweighted[1:]
+                b1 = self._build_token_bias_from_memories(
+                    top1, q_ids, corpus_idf,
+                    relevance_floor=self.c.top1_relevance_floor)
+                if rest:
+                    br = self._build_token_bias_from_memories(
+                        rest, q_ids, corpus_idf,
+                        relevance_floor=self.c.rest_relevance_floor)
+                else:
+                    br = torch.zeros_like(b1)
+                b_bias = (self.c.top1_content_bias_weight * b1
+                          + self.c.rest_content_bias_weight * br)
+            else:
+                b_bias = self._build_token_bias_from_memories(
+                    reweighted, q_ids, corpus_idf)
             bmax = b_bias.max()
             if bmax > 1e-8: bias[b] = b_bias / bmax
         return bias
@@ -2545,7 +2901,9 @@ class MemLLM(nn.Module):
             q_ids = (query_content_ids_per_batch[b]
                      if query_content_ids_per_batch and b < len(query_content_ids_per_batch)
                      else [])
-            nd_mem_weights = [(mid, nd_weights.get(mid, 0.0)) for mid in nd_mids]
+            nd_mem_weights = sorted(
+                [(mid, nd_weights.get(mid, 0.0)) for mid in nd_mids],
+                key=lambda x: x[0])
             nd_bias = self._build_token_bias_from_memories(nd_mem_weights, q_ids, corpus_idf)
             for t in dom_token_set:
                 if 0 <= t < V: nd_bias[t] = 0.0
@@ -2553,7 +2911,8 @@ class MemLLM(nn.Module):
             if nmax > 1e-8: suppression[b] = nd_bias / nmax
         return suppression
 
-    def _get_prefix(self, hs, mask=None, pl=0, update_stats=True, return_extra=False, ids=None):
+    def _get_prefix(self, hs, mask=None, pl=0, update_stats=True, return_extra=False, ids=None,
+                    exclude_token_ids: Optional[Set[int]] = None):
         pooled, xq, fq = self.extract_state(hs, mask, pl)
         trimmed_mask = mask[:, pl:] if mask is not None and pl > 0 else mask
         if trimmed_mask is not None and pooled.shape[1] != trimmed_mask.shape[1]:
@@ -2562,7 +2921,7 @@ class MemLLM(nn.Module):
         if ids is not None and self.content_classifier is not None:
             for b in range(ids.shape[0]):
                 b_ids = ids[b].tolist()
-                b_exact = list(set(self.content_classifier.get_content_ids_from_tokens(b_ids)))
+                b_exact = sorted(set(self.content_classifier.get_content_ids_from_tokens(b_ids)))
                 query_content_ids_per_batch.append(b_exact)
         query_sem = (self._compute_content_semantic_emb(pooled, ids, trimmed_mask)
                      if ids is not None and self.content_classifier is not None
@@ -2576,7 +2935,8 @@ class MemLLM(nn.Module):
 
         ctx_descriptors_d_llm = (self._compute_aggregated_context_descriptors_d_llm(diag)
                                  if self.c.use_context_descriptor else None)
-        rare_residual = self._compute_rare_keyword_wte_residual(diag)
+        rare_residual = self._compute_rare_keyword_wte_residual(
+            diag, exclude_token_ids=exclude_token_ids)
 
         prefix = self.bridge.inject(
             fibers, mem_mask, fiber_summary=fiber_summary,
@@ -2612,13 +2972,15 @@ class MemLLM(nn.Module):
             _set_prefix_biases(prefix, cb, sb)
         return prefix
 
-    def _build_contrastive_uncond_prefix(self, diag, prefix_cond, prompt_len_for_meta=None):
+    def _build_contrastive_uncond_prefix(self, diag, prefix_cond, prompt_len_for_meta=None,
+                                          content_bias=None, suppression_bias=None):
         dev = prefix_cond.device; B = prefix_cond.shape[0]
         non_dom_fibers = []; have_contrast = []
         for b in range(B):
             mids = diag.non_dominant_per_batch[b] if b < len(diag.non_dominant_per_batch) else []
             mids = [m for m in mids if m in self.amm.tree.store]
             if mids:
+                mids = sorted(mids)
                 fvecs = torch.stack([self.amm.tree.store[m].fiber.to(dev) for m in mids])
                 non_dom_fibers.append(fvecs.mean(0)); have_contrast.append(True)
             else:
@@ -2640,6 +3002,8 @@ class MemLLM(nn.Module):
         if prompt_len_for_meta is not None:
             _set_prefix_meta(uncond_prefix, prompt_len_for_meta)
         _set_prefix_guidance(uncond_prefix, False)
+        if content_bias is not None:
+            _set_prefix_biases(uncond_prefix, content_bias, suppression_bias)
         return uncond_prefix
 
     def _compute_vocab_bias(self, fiber_summary):
@@ -2647,27 +3011,45 @@ class MemLLM(nn.Module):
         wte = self.backbone.input_embedding_weight().to(fiber_summary.device)
         return self.vocab_proj(fiber_summary, wte)
 
-    def prepare_decode_context(self, ids, mask, update_stats=False):
+    def _collect_exclude_ids(self, ids):
+        if self.content_classifier is None: return set()
+        exclude = set()
+        for b in range(ids.shape[0]):
+            b_ids = ids[b].tolist()
+            b_content = self.content_classifier.get_content_ids_from_tokens(b_ids)
+            exclude.update(b_content)
+        return exclude
+
+    def prepare_decode_context(self, ids, mask, update_stats=False,
+                                mixture_ceiling_override: Optional[float] = None):
         prompt_len = ids.shape[1]
+        exclude_ids = self._collect_exclude_ids(ids)
         with torch.no_grad():
             o = self.fwd(ids, mask)
             prefix_cond, fs, diag, cb, sb = self._get_prefix(
-                o['hs'], mask, update_stats=update_stats, return_extra=True, ids=ids)
+                o['hs'], mask, update_stats=update_stats, return_extra=True, ids=ids,
+                exclude_token_ids=exclude_ids)
             vb = self._compute_vocab_bias(fs)
             if self.c.use_cfg_decoding:
                 if self.c.use_contrastive_memory_cfg:
+                    sym_cb = cb if self.c.apply_content_bias_symmetric_cfg else None
+                    sym_sb = sb if self.c.apply_content_bias_symmetric_cfg else None
                     prefix_uncond = self._build_contrastive_uncond_prefix(
-                        diag, prefix_cond, prompt_len_for_meta=prompt_len)
+                        diag, prefix_cond, prompt_len_for_meta=prompt_len,
+                        content_bias=sym_cb, suppression_bias=sym_sb)
                 else:
                     B = prefix_cond.shape[0]
                     prefix_uncond = self.bridge.build_neutral_prefix(B, prefix_cond.device)
                     _set_prefix_meta(prefix_uncond, prompt_len)
                     _set_prefix_guidance(prefix_uncond, False)
+                    if self.c.apply_content_bias_symmetric_cfg:
+                        _set_prefix_biases(prefix_uncond, cb, sb)
             else:
                 prefix_uncond = None
             mixture_gate = None; memory_logit_bias = None
             if self.c.use_mixture_decoding and self.mixture_gate_head is not None:
-                mixture_gate = self.mixture_gate_head(fs)
+                mixture_gate = self.mixture_gate_head(
+                    fs, override_ceiling=mixture_ceiling_override)
                 memory_logit_bias = self._compute_mixture_memory_logit(fs, diag, ids, mask)
         return DecodeContext(
             prefix_cond=prefix_cond, prefix_uncond=prefix_uncond,
@@ -2678,7 +3060,6 @@ class MemLLM(nn.Module):
     def shape_step_logits(self, logits_cond, logits_uncond, step,
                           content_bias, suppression_bias, vocab_bias, state,
                           mixture_gate=None, memory_logit_bias=None):
-        """[H-1] 不再加 content/suppression bias;仅 mixture, CFG, vocab_bias, FS, repeat, cyclic, ngram, newline。"""
         c = self.c; dev = logits_cond.device; cc = self.content_classifier
         HARD_MASK = -1e9
 
@@ -2704,41 +3085,6 @@ class MemLLM(nn.Module):
             lg = lg_base.clone()
 
         V_lg = lg.shape[-1]
-        if c.use_adaptive_content_bias_scale:
-            logits_std = lg.std().item()
-            cb_unit = logits_std * c.content_bias_std_multiplier
-            sup_unit = logits_std * c.suppression_std_multiplier
-        else:
-            cb_unit = 1.0; sup_unit = 1.0
-        if c.use_degeneration_detector and len(state.generated_ids) >= c.degen_detector_window:
-            tail = state.generated_ids[-c.degen_detector_window:]
-            unique_ratio = len(set(tail)) / len(tail)
-            if unique_ratio < c.degen_detector_unique_ratio:
-                cb_unit *= c.degen_detector_bias_dampen
-                sup_unit *= c.degen_detector_bias_dampen
-
-        if (c.shape_step_applies_content_bias
-                and content_bias is not None
-                and content_bias.abs().max().item() > 0.01):
-            step_scale_cb = max(c.content_bias_floor, 1.0 - step * c.content_bias_decay)
-            V = min(V_lg, content_bias.shape[-1])
-            cb_effective = content_bias[:, :V].clone()
-            if (c.use_content_bias_history_decay and cc is not None
-                    and state.generated_content_counts):
-                for tid, cnt in state.generated_content_counts.items():
-                    if cnt >= 1 and tid < V:
-                        factor = max(c.content_bias_history_floor,
-                                     1.0 - c.content_bias_history_decay_rate * cnt)
-                        cb_effective[:, tid] = cb_effective[:, tid] * factor
-            lg[:, :V] = lg[:, :V] + cb_effective * cb_unit * c.content_bias_scale * step_scale_cb
-
-        if (c.shape_step_applies_suppression_bias
-                and c.use_memory_guided_suppression and suppression_bias is not None
-                and suppression_bias.abs().max().item() > 0.01):
-            step_scale_sup = max(c.suppression_floor, 1.0 - step * c.suppression_decay)
-            V = min(V_lg, suppression_bias.shape[-1])
-            lg[:, :V] = lg[:, :V] - suppression_bias[:, :V] * sup_unit * c.suppression_bias_scale * step_scale_sup
-
         step_scale_learned = max(c.semantic_boost_floor, 1.0 - step * c.semantic_boost_decay)
         if vocab_bias is not None:
             V2 = min(V_lg, vocab_bias.shape[-1])
@@ -2773,6 +3119,7 @@ class MemLLM(nn.Module):
                 if tid in cc.content_ids and tid < V_lg:
                     scaled_count = count ** c.content_repeat_exponent
                     lg[0, tid] -= c.content_repeat_penalty * scaled_count
+
         if c.use_cyclic_content_hard_mask and cc is not None:
             window = c.cyclic_content_window; max_cnt = c.cyclic_content_max_count
             window_counts = {}; cutoff_step = step - window
@@ -2848,10 +3195,12 @@ class MemLLM(nn.Module):
         surp = self.amm.surprise_proxy(o['logits'][:, :-1], ids[:, 1:])
         pooled_mean = hs_pooled.mean(1)
         content_sem = self._compute_content_semantic_emb(hs_pooled, ids, mask)
+        # [A] 为 attention-pool encoder 准备逐条 content hidden
+        content_hidden_per_b = self._extract_content_hidden_per_b(hs_pooled, ids, mask)
         raw_ids = self.tok.encode(text); cc = self.content_classifier
-        content_ids = list(set(cc.get_content_ids_from_tokens(raw_ids))) if cc else []
-        strict_ids = list(set(cc.get_strict_starter_ids_from_tokens(raw_ids))) if cc else []
-        expanded_ids = self._expand_content_ids(content_ids)
+        content_ids = sorted(set(cc.get_content_ids_from_tokens(raw_ids))) if cc else []
+        strict_ids = sorted(set(cc.get_strict_starter_ids_from_tokens(raw_ids))) if cc else []
+        expanded_ids = sorted(self._expand_content_ids(content_ids))
         wte_fp32 = self.backbone.input_embedding_weight().to(dev)
         stored = 0; gate_vals = []
         for b in range(ids.shape[0]):
@@ -2862,13 +3211,15 @@ class MemLLM(nn.Module):
                 ctx_desc = None
                 if self.memory_context_encoder is not None:
                     with torch.no_grad():
+                        hidden_states_b = content_hidden_per_b[b]
                         if self.c.context_encoder_source == "wte_strict_starter":
                             src_ids = strict_ids if strict_ids else content_ids
                             ctx_desc = self.memory_context_encoder.encode_from_tokens(
-                                src_ids, wte_fp32)
+                                src_ids, wte_fp32,
+                                hidden_states=hidden_states_b, hidden_mask=None)
                         else:
                             ctx_desc = self.memory_context_encoder.encode_from_hidden(
-                                content_sem[b])
+                                content_sem[b]).detach().contiguous()
                 self.amm.store_mem(pooled_mean[b], surp[b], training_mode,
                     source_text=text, content_token_ids=content_ids,
                     content_semantic_emb=content_sem[b],
@@ -2876,17 +3227,21 @@ class MemLLM(nn.Module):
                     context_descriptor=ctx_desc,
                     strict_starter_ids=strict_ids)
                 stored += 1
+        # [C] 触发 re-cluster
+        self.amm.maybe_recluster(force=False)
         return stored, gate_vals
 
     def _refresh_all_memories(self):
-        entries = list(self.amm.tree.store.values())
+        entries = [self.amm.tree.store[mid] for mid in sorted(self.amm.tree.store.keys())]
         texts = [e.source_text for e in entries if e.source_text]
         if not texts: return 0
         unique_texts = list(dict.fromkeys(texts))
         self.amm.tree.store.clear()
         self.amm.tree.root = _Node()
         self.amm.tree.nid = 0; self.amm.time = 0
+        self.amm._writes_since_recluster = 0
         for text in unique_texts: self.write(text, training_mode=True)
+        self.amm.maybe_recluster(force=True)
         self._refresh_rare_keyword_indices()
         return len(unique_texts)
 
@@ -2900,11 +3255,19 @@ class MemLLM(nn.Module):
         ids, mask = self._prep_prompt_ids(prompt)
         dev = next(self.parameters()).device
         ids = ids.to(dev); mask = mask.to(dev)
-        ctx = self.prepare_decode_context(ids, mask, update_stats=False)
+        # [F] circuit breaker
+        breaker = CircuitBreaker(self.c) if self.c.use_circuit_breaker else None
+        ctx = self.prepare_decode_context(
+            ids, mask, update_stats=False,
+            mixture_ceiling_override=None)
         state = DecodeState(); prompt_len = ids.shape[1]
         for i in range(mt):
             if i > 0 and i % self.c.retrieval_interval == 0:
-                ctx = self.prepare_decode_context(ids, mask, update_stats=False)
+                override = (breaker.effective_ceiling(self.c.mixture_gate_ceiling)
+                            if breaker is not None and breaker.active else None)
+                ctx = self.prepare_decode_context(
+                    ids, mask, update_stats=False,
+                    mixture_ceiling_override=override)
             with torch.no_grad():
                 o_cond = self.fwd(ids, mask, ctx.prefix_cond)
                 lg_cond = o_cond['logits'][:, -1:].squeeze(1)
@@ -2927,11 +3290,21 @@ class MemLLM(nn.Module):
                     total = sp.sum(-1, keepdim=True)
                     if (total < 1e-10).any(): sp[:, 0] = 1.0; total = sp.sum(-1, keepdim=True)
                     sp = sp / total; nxt = si.gather(-1, torch.multinomial(sp, 1))
-            nxt_id = nxt.item()
+                # [F] 记录 -log P(chosen)
+                chosen_id = int(nxt.item())
+                log_probs = F.log_softmax(lg, dim=-1)
+                chosen_nll = float(-log_probs[0, chosen_id].item())
+            nxt_id = chosen_id
             if nxt_id == self.tok.eos_token_id and len(state.generated_ids) >= self.c.degen_min_tokens:
                 break
             state.update(nxt_id, i, self.content_classifier,
-                         self.c.bpe_echo_window, self.c.cyclic_content_window)
+                         self.c.bpe_echo_window, self.c.cyclic_content_window,
+                         nll=chosen_nll)
+            if breaker is not None:
+                if breaker.baseline is None:
+                    breaker.set_baseline_from(state.token_nll_history)
+                else:
+                    breaker.update(state.token_nll_history)
             ids = torch.cat([ids, nxt], 1)
             mask = torch.cat([mask, torch.ones(1, 1, device=dev, dtype=mask.dtype)], 1)
         new_ids = ids[0, prompt_len:].tolist()
@@ -2939,45 +3312,74 @@ class MemLLM(nn.Module):
         return prompt + gen_text if not self.c.use_chat_template_for_gen else gen_text
 
     def save_memory(self, path):
-        """[H-4] 双端 detach().cpu().clone().contiguous()。"""
-        data = {'store': {}, 'nid': self.amm.tree.nid, 'time': self.amm.time}
+        """[D] 确定性序列化:mid 排序,字段顺序稳定,SHA256 指纹。"""
+        data = {'store': {}, 'nid': self.amm.tree.nid, 'time': self.amm.time,
+                'classifier_fingerprint': self._classifier_fingerprint,
+                'aligner_target_std': float(self.bridge.aligner._target_std.item()),
+                'aligner_scale_logit': float(self.bridge.aligner.scale_logit.item())}
         def _ser(t):
             if t is None: return None
             return t.detach().cpu().clone().contiguous()
-        for mid, m in self.amm.tree.store.items():
-            data['store'][mid] = {
+        sorted_mids = sorted(self.amm.tree.store.keys())
+        ordered = {}
+        h = hashlib.sha256()
+        for mid in sorted_mids:
+            m = self.amm.tree.store[mid]
+            entry = {
                 'base': _ser(m.base), 'fiber': _ser(m.fiber), 'dirn': _ser(m.dirn),
                 'surprise': m.surprise, 'ts': m.ts, 'last': m.last,
                 'cnt': m.cnt, 'version': m.version,
                 'source_text': m.source_text,
-                'content_token_ids': list(m.content_token_ids),
-                'expanded_content_ids': list(m.expanded_content_ids),
+                'content_token_ids': sorted(list(m.content_token_ids)),
+                'expanded_content_ids': sorted(list(m.expanded_content_ids)),
                 'rare_keyword_ids': list(m.rare_keyword_ids),
-                'strict_starter_ids': list(m.strict_starter_ids),
+                'strict_starter_ids': sorted(list(m.strict_starter_ids)),
                 'semantic_emb': _ser(m.semantic_emb),
-                'context_descriptor': _ser(m.context_descriptor)}
+                'context_descriptor': _ser(m.context_descriptor),
+                'cluster_id': int(m.cluster_id)}
+            ordered[mid] = entry
+            h.update(str(mid).encode()); h.update(b'|')
+            h.update(m.source_text.encode()); h.update(b'|')
+            for k_in in ['content_token_ids', 'strict_starter_ids']:
+                for t in entry[k_in]:
+                    h.update(str(int(t)).encode()); h.update(b',')
+                h.update(b';')
+        data['store'] = ordered
+        data['fingerprint'] = h.hexdigest()
         torch.save(data, path)
 
     def load_memory(self, path):
         data = torch.load(path, weights_only=False)
+        # [D] 验证分类器指纹
+        saved_fp = data.get('classifier_fingerprint', None)
+        if (saved_fp is not None and self._classifier_fingerprint is not None
+                and saved_fp != self._classifier_fingerprint):
+            raise RuntimeError(
+                f"ContentTokenClassifier fingerprint mismatch: "
+                f"saved={saved_fp[:16]} cur={self._classifier_fingerprint[:16]}. "
+                f"Tokenizer/vocab changed.")
         self.amm.tree.store.clear(); self.amm.tree.root = _Node()
         self.amm.tree.nid = data['nid']; self.amm.time = data['time']
+        self.amm._writes_since_recluster = 0
         dev = next(self.parameters()).device
         def _load(t):
             if t is None: return None
             return t.detach().to(dev).clone().contiguous()
-        for mid, d in data['store'].items():
+        sorted_mids = sorted(data['store'].keys())
+        for mid in sorted_mids:
+            d = data['store'][mid]
             m = MemEntry(mid=mid,
                 base=_load(d['base']), fiber=_load(d['fiber']), dirn=_load(d['dirn']),
                 surprise=d['surprise'], ts=d['ts'],
                 last=d['last'], cnt=d['cnt'], version=d['version'],
                 source_text=d.get('source_text', ''),
-                content_token_ids=list(d.get('content_token_ids', [])),
-                expanded_content_ids=list(d.get('expanded_content_ids', [])),
+                content_token_ids=sorted(list(d.get('content_token_ids', []))),
+                expanded_content_ids=sorted(list(d.get('expanded_content_ids', []))),
                 rare_keyword_ids=list(d.get('rare_keyword_ids', [])),
-                strict_starter_ids=list(d.get('strict_starter_ids', [])),
+                strict_starter_ids=sorted(list(d.get('strict_starter_ids', []))),
                 semantic_emb=_load(d.get('semantic_emb', None)),
-                context_descriptor=_load(d.get('context_descriptor', None)))
+                context_descriptor=_load(d.get('context_descriptor', None)),
+                cluster_id=int(d.get('cluster_id', -1)))
             self.amm.tree.insert(m)
         self._refresh_rare_keyword_indices()
 
@@ -2992,7 +3394,9 @@ class Trainer:
             'semantic_alignment': c.warmup_steps_sa,
             'tail_semantic_anchor': c.warmup_steps_tsa,
             'functional_suppression': c.warmup_steps_fs,
-            'context_separation': c.warmup_steps_ctx_sep})
+            'context_separation': c.warmup_steps_ctx_sep,
+            'slot_residual_alignment': c.warmup_steps_sra,
+            'inter_domain_margin': c.warmup_steps_idm})
         self.grad_monitor = GradientMonitor()
         self.grad_monitor.register('ctx_encoder', m.amm.ctx)
         self.grad_monitor.register('fib_encoder', m.amm.fib)
@@ -3052,7 +3456,7 @@ class Trainer:
             valid = target_ids[b][target_mask[b].bool()].tolist()
             content_ids = cc.get_content_ids_from_tokens(valid)
             if content_ids:
-                uids = list(set(content_ids)); uids = [uid for uid in uids if uid < V]
+                uids = sorted(set(content_ids)); uids = [uid for uid in uids if uid < V]
                 if uids: target[b, uids] = 1.0 / len(uids); valid_count += 1
         if valid_count == 0: return torch.tensor(0.0, device=dev, requires_grad=True)
         log_probs = F.log_softmax(vocab_logits / self.c.semantic_align_temp, dim=-1)
@@ -3085,7 +3489,7 @@ class Trainer:
         losses = []
         for b in range(B):
             valid = ids[b][mask[b].bool()].tolist()
-            content_tids = list(set(cc.get_content_ids_from_tokens(valid)))
+            content_tids = sorted(set(cc.get_content_ids_from_tokens(valid)))
             content_tids = [t for t in content_tids if t < V]
             if not content_tids: continue
             target_general = torch.zeros(V, device=dev)
@@ -3122,6 +3526,69 @@ class Trainer:
             return torch.tensor(0.0, device=dev, requires_grad=True)
         return torch.stack(losses).mean()
 
+    def slot_residual_alignment_loss(self):
+        """[B] 惩罚 slot_1+ 方向与 residual 方向夹角过大(cos < floor)。"""
+        dev = next(self.m.parameters()).device
+        tail_post = self.m.bridge._last_tail_pre_renorm
+        residual = self.m.bridge._last_residual
+        if tail_post is None or residual is None:
+            return torch.tensor(0.0, device=dev, requires_grad=True)
+        B, n_slots, D = tail_post.shape
+        if n_slots < 2:
+            return torch.tensor(0.0, device=dev, requires_grad=True)
+        losses = []
+        for s in range(1, n_slots):
+            r_s = residual[:, s, :]
+            t_s = tail_post[:, s, :]
+            r_norm = r_s.norm(dim=-1, keepdim=True)
+            valid = (r_norm.squeeze(-1) > 1e-6)
+            if valid.sum() == 0: continue
+            r_n = F.normalize(r_s[valid], dim=-1, eps=1e-8)
+            t_n = F.normalize(t_s[valid], dim=-1, eps=1e-8)
+            cos = (r_n * t_n).sum(dim=-1)
+            floor = self.c.tail_slot_cos_alignment_floor
+            violation = F.relu(floor - cos)
+            losses.append(violation.mean())
+        if not losses:
+            return torch.tensor(0.0, device=dev, requires_grad=True)
+        return torch.stack(losses).mean()
+
+    def inter_domain_margin_loss(self, texts):
+        """[C] 用 semantic_emb KMeans 弱标签,约束 fiber dir 的同/跨域 cos。"""
+        dev = next(self.m.parameters()).device
+        if len(texts) < 4 or not self.c.use_inter_domain_margin:
+            return torch.tensor(0.0, device=dev, requires_grad=True)
+        tk = self.m.tok(texts, return_tensors='pt', padding=True, truncation=True)
+        ids, mask = tk['input_ids'].to(dev), tk['attention_mask'].to(dev)
+        with torch.no_grad(): o = self.m.fwd(ids, mask)
+        _, xq, fq = self.m.extract_state(o['hs'], mask)
+        with torch.no_grad():
+            pooled = self.m.layer_pool(o['hs'])
+            sem_emb = self.m._compute_content_semantic_emb(pooled, ids, mask)
+            sem_n = F.normalize(sem_emb.float(), dim=-1, eps=1e-8)
+            K = min(self.c.inter_domain_kmeans_k, len(texts) // 2)
+            if K < 2:
+                return torch.tensor(0.0, device=dev, requires_grad=True)
+            assign, _ = _simple_kmeans(
+                sem_n, k=K, n_iter=self.c.inter_domain_kmeans_iters, seed=0)
+        dirs = F.normalize(self.m.amm.dir_pred(xq, fq), dim=-1, eps=1e-8)
+        sim = dirs @ dirs.T
+        N = dirs.shape[0]
+        same_mask = (assign.unsqueeze(0) == assign.unsqueeze(1))
+        same_mask = same_mask & (~torch.eye(N, dtype=torch.bool, device=dev))
+        cross_mask = ~same_mask & (~torch.eye(N, dtype=torch.bool, device=dev))
+        same_target = self.c.inter_domain_same_cos_target
+        cross_target = self.c.inter_domain_cross_cos_target
+        margin = self.c.inter_domain_margin
+        loss = torch.tensor(0.0, device=dev)
+        if same_mask.any():
+            same_cos = sim[same_mask]
+            loss = loss + F.relu(same_target - same_cos + margin * 0.5).mean()
+        if cross_mask.any():
+            cross_cos = sim[cross_mask]
+            loss = loss + F.relu(cross_cos - cross_target + margin * 0.5).mean()
+        return loss
+
     def functional_suppression_loss(self, prefix, ids, mask):
         o = self.m.fwd(ids, mask, prefix)
         last_logits = o['logits'][:, -1, :]
@@ -3150,20 +3617,27 @@ class Trainer:
         dev = next(self.m.parameters()).device
         wte = self.m.backbone.input_embedding_weight().to(dev)
         cc = self.m.content_classifier
+        tk = self.m.tok(texts, return_tensors='pt', padding=True, truncation=True)
+        ids_b, mask_b = tk['input_ids'].to(dev), tk['attention_mask'].to(dev)
+        with torch.no_grad():
+            o = self.m.fwd(ids_b, mask_b)
+            hs_pooled = self.m.layer_pool(o['hs'])
+        content_hidden_per_b = self.m._extract_content_hidden_per_b(hs_pooled, ids_b, mask_b)
         per_text_strict_ids = []
         for t in texts:
             raw_ids = self.m.tok.encode(t)
             ss = cc.get_strict_starter_ids_from_tokens(raw_ids) if cc else []
-            per_text_strict_ids.append(list(set(ss)))
+            per_text_strict_ids.append(sorted(set(ss)))
         descs = []
-        for ss in per_text_strict_ids:
+        for i, ss in enumerate(per_text_strict_ids):
             if not ss: continue
-            idx = torch.tensor([t for t in ss if t < wte.shape[0]],
+            idx = torch.tensor(sorted([t for t in ss if t < wte.shape[0]]),
                                device=dev, dtype=torch.long)
             if idx.numel() == 0: continue
             centroid = wte.index_select(0, idx).float().mean(0)
-            h = self.m.memory_context_encoder.proj(centroid)
-            descs.append(F.normalize(h, dim=-1, eps=1e-8))
+            d = self.m.memory_context_encoder.encode_with_hidden(
+                centroid, hidden_states=content_hidden_per_b[i])
+            descs.append(d)
         if len(descs) < 2:
             return torch.tensor(0.0, device=dev, requires_grad=True)
         D = torch.stack(descs, dim=0)
@@ -3260,7 +3734,7 @@ class Trainer:
         ids, mask = tk['input_ids'].to(dev), tk['attention_mask'].to(dev)
         with torch.no_grad(): o = self.m.fwd(ids, mask)
         _, xq, fq = self.m.extract_state(o['hs'], mask)
-        mids = list(store.keys())
+        mids = sorted(store.keys())
         cb = torch.stack([store[m].base.to(dev) for m in mids])
         cf = torch.stack([store[m].fiber.to(dev) for m in mids])
         cd = torch.stack([store[m].dirn.to(dev) for m in mids])
@@ -3307,6 +3781,10 @@ class Trainer:
             l_fs = torch.tensor(0.0, device=dev)
         w_cs = self.warmup.weight('context_separation')
         l_cs = self.context_separation_loss(texts) * w_cs
+        w_sra = self.warmup.weight('slot_residual_alignment')
+        l_sra = self.slot_residual_alignment_loss() * w_sra
+        w_idm = self.warmup.weight('inter_domain_margin')
+        l_idm = self.inter_domain_margin_loss(texts) * w_idm
         l_c = self.contrast(texts) if len(texts) >= 2 else torch.tensor(0.0, device=dev)
         with torch.no_grad():
             tk2 = self.m.tok(texts, return_tensors='pt', padding=True, truncation=True)
@@ -3327,7 +3805,9 @@ class Trainer:
                 W['reranker_ranking']*l_rr + W['vocab_anchor']*l_va +
                 W.get('tail_semantic_anchor', 0.5)*l_tsa +
                 W.get('functional_suppression', 0.4)*l_fs +
-                W.get('context_separation', 0.3)*l_cs)
+                W.get('context_separation', 0.3)*l_cs +
+                W.get('slot_residual_alignment', 0.3)*l_sra +
+                W.get('inter_domain_margin', 0.2)*l_idm)
         loss.backward()
         nn.utils.clip_grad_norm_(
             [p for n, p in self.m.named_parameters()
@@ -3348,4 +3828,6 @@ class Trainer:
                 'tail_semantic_anchor': l_tsa.item(),
                 'functional_suppression': l_fs.item(),
                 'context_separation': l_cs.item(),
+                'slot_residual_alignment': l_sra.item(),
+                'inter_domain_margin': l_idm.item(),
                 'grad_norms': grad_norms, 'loss_weights': W}
