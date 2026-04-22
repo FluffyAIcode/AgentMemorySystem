@@ -37,6 +37,14 @@ class CrossBundleAttention(nn.Module):
             nn.Linear(cfg.d_F_ctx, cfg.d_LLM) for _ in range(cfg.prefix_slots_ctx)
         ])
         self.prefix_ln = nn.LayerNorm(cfg.d_LLM)
+        # LayerNorm produces unit-variance output, so ||prefix||_2 per slot
+        # grows as sqrt(d_LLM). For large backbones (Qwen d_LLM=1536) this
+        # gives ||prefix|| ≈ 39, which is ~20× larger than typical token
+        # embeddings and makes the prefix dominate the LM forward.
+        # A learnable scalar initialized at ~1/sqrt(d_LLM) puts the prefix
+        # in the token-embedding scale; training can tune up from there.
+        import math
+        self.prefix_scale = nn.Parameter(torch.full((1,), 1.0 / math.sqrt(cfg.d_LLM)))
 
     def forward(self, hidden_state: Tensor, entries: List[MemEntry],
                 mem_mask: Optional[Tensor] = None) -> Tensor:
@@ -91,8 +99,9 @@ class CrossBundleAttention(nn.Module):
         )
 
         prefix = torch.cat([slots_time, slots_topic, slots_ctx], dim=1)
-        # Post-attention layer norm for decoder stability
-        prefix = self.prefix_ln(prefix)
+        # Post-attention layer norm for decoder stability, then scale down to
+        # token-embedding magnitude. The scale is a learnable scalar.
+        prefix = self.prefix_ln(prefix) * self.prefix_scale
         assert prefix.shape == (B, self.cfg.L_mem, self.cfg.d_LLM), \
             f"prefix shape invariant: got {tuple(prefix.shape)}"
         return prefix
