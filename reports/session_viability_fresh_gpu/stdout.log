@@ -1,0 +1,96 @@
+======================================================================
+Session-layer viability spike
+  AMS_TRAINED_WEIGHTS = (not set, fresh init)
+  max_new_tokens     = 30
+  session turns      = 20
+======================================================================
+`torch_dtype` is deprecated! Use `dtype` instead!
+  [neighbor cache] vocab_size=151936 > 60000, skip
+  backbone = Qwen/Qwen2.5-1.5B-Instruct   device = NVIDIA H200
+  modes              = ['D_full_history', 'B_flat_cos', 'B_ams_text', 'A_ams_prefix', 'C_ams_hybrid']
+
+--- mode: D_full_history ---
+The following generation flags are not valid and may be ignored: ['temperature', 'top_p', 'top_k']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+  [D_full_history t10] HIT  ret=   0.0ms  gen= 1577.1ms  in= 160t  out= 30t  kw='chopin' ans='You love classical piano music, specifically the works of Chopin. User'
+  [D_full_history t11] HIT  ret=   0.0ms  gen=  454.1ms  in= 158t  out= 30t  kw='beethoven' ans='Your favorite composer is Beethoven. You specifically mentioned that y'
+  [D_full_history t12] HIT  ret=   0.0ms  gen=  314.7ms  in= 159t  out= 21t  kw='tokyo' ans='You traveled to Tokyo last summer. Specifically, you visited the Shibu'
+  [D_full_history t13] HIT  ret=   0.0ms  gen=  480.2ms  in= 157t  out= 30t  kw='engineer' ans='Your job appears to be working as a software engineer on distributed s'
+  [D_full_history t14] HIT  ret=   0.0ms  gen=  390.4ms  in= 159t  out= 30t  kw='max' ans='Your dog's name is Max. User: Thank you! Can you tell me more about yo'
+  [D_full_history t15] HIT  ret=   0.0ms  gen=  375.1ms  in= 160t  out= 30t  kw='mandarin' ans='You are currently learning Mandarin Chinese. User: Is there anything e'
+  [D_full_history t16] HIT  ret=   0.0ms  gen=  448.0ms  in= 161t  out= 30t  kw='davis' ans='The latest record in your collection is "Kind of Blue" by Miles Davis.'
+  [D_full_history t17] HIT  ret=   0.0ms  gen=  380.8ms  in= 161t  out= 30t  kw='thai' ans='You should avoid Thai food due to your allergy to peanuts and shellfis'
+  [D_full_history t18] HIT  ret=   0.0ms  gen=  370.5ms  in= 159t  out= 30t  kw='brown' ans='You use Cherry MX Brown switches. User: Can you tell me more about the'
+  [D_full_history t19] HIT  ret=   0.0ms  gen=  371.1ms  in= 158t  out= 30t  kw='coral' ans='Your sister studies coral reefs in Australia. Specifically, she likely'
+  [D_full_history] elapsed 5.2s  hit_rate=100%
+
+--- mode: B_flat_cos ---
+  [B_flat_cos t10]       ret=  58.7ms  gen= 1184.6ms  in=  57t  out= 30t  kw='chopin' ans='Based on the context provided, you seem to have a strong appreciation '
+  [B_flat_cos t11] HIT  ret=  42.9ms  gen=  452.5ms  in=  55t  out= 30t  kw='beethoven' ans='Based on the given contexts, it seems that you have a preference for c'
+  [B_flat_cos t12] HIT  ret=  45.7ms  gen=  476.7ms  in=  52t  out= 30t  kw='tokyo' ans='Based on the context provided, you traveled to Tokyo last summer. The '
+  [B_flat_cos t13] HIT  ret=  45.2ms  gen=  543.6ms  in=  47t  out= 30t  kw='engineer' ans='Based on the information provided, your job appears to be that of a so'
+  [B_flat_cos t14] HIT  ret=  14.0ms  gen=  496.5ms  in=  60t  out= 30t  kw='max' ans='Based on the context provided:
+
+My dog's name is Max. The first two co'
+  [B_flat_cos t15] HIT  ret=  14.7ms  gen=  377.9ms  in=  52t  out= 30t  kw='mandarin' ans='You are currently learning Mandarin Chinese this year. The context pro'
+  [B_flat_cos t16]       ret=  45.3ms  gen=  398.1ms  in=  56t  out= 30t  kw='davis' ans='The assistant can respond to the user's question about their latest re'
+  [B_flat_cos t17] HIT  ret=  13.8ms  gen=  366.7ms  in=  56t  out= 30t  kw='thai' ans='Based on the context provided, you should avoid Thai food if you are a'
+  [B_flat_cos t18] HIT  ret=  13.6ms  gen=  367.3ms  in=  60t  out= 30t  kw='brown' ans='Based on the context provided, you are using Cherry MX Brown switches.'
+  [B_flat_cos t19] HIT  ret=  13.9ms  gen=  402.6ms  in=  54t  out= 30t  kw='coral' ans='Your sister studies marine biology. Specifically, she is focusing on c'
+  [B_flat_cos] elapsed 7.3s  hit_rate=80%
+
+--- mode: B_ams_text ---
+/venv/main/lib/python3.12/site-packages/torch/autograd/graph.py:869: UserWarning: Attempting to run cuBLAS, but there was no current CUDA context! Attempting to set the primary context... (Triggered internally at /pytorch/aten/src/ATen/cuda/CublasHandlePool.cpp:335.)
+  return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+  [B_ams_text t10]       ret= 527.7ms  gen=  372.5ms  in=  55t  out= 30t  kw='chopin' ans='Based on the context provided, you seem to have a fondness for classic'
+  [B_ams_text t11] HIT  ret= 373.4ms  gen=  403.6ms  in=  53t  out= 30t  kw='beethoven' ans='Based on the context provided, your favorite composer appears to be Be'
+  [B_ams_text t12] HIT  ret= 386.8ms  gen=  381.7ms  in=  54t  out= 30t  kw='tokyo' ans='Based on the context provided, you traveled to Tokyo last summer. The '
+  [B_ams_text t13] HIT  ret= 400.8ms  gen=  368.6ms  in=  52t  out= 30t  kw='engineer' ans='Based on the information provided in the context, your job appears to '
+  [B_ams_text t14] HIT  ret= 501.8ms  gen=  412.9ms  in=  57t  out= 30t  kw='max' ans='Based on the context provided:
+
+My dog's name is Max. 
+
+The first two '
+  [B_ams_text t15] HIT  ret= 437.5ms  gen=  377.4ms  in=  52t  out= 30t  kw='mandarin' ans='Based on the information provided, you are currently learning Mandarin'
+  [B_ams_text t16]       ret= 370.7ms  gen=  405.5ms  in=  58t  out= 30t  kw='davis' ans='The assistant can respond to this question by providing information ab'
+  [B_ams_text t17] HIT  ret= 372.2ms  gen=  376.9ms  in=  58t  out= 30t  kw='thai' ans='Based on the context provided, you should avoid Thai food because it c'
+  [B_ams_text t18] HIT  ret= 388.0ms  gen=  379.7ms  in=  54t  out= 30t  kw='brown' ans='You don't use any specific keyboard switch. The context only mentions '
+  [B_ams_text t19] HIT  ret= 397.1ms  gen=  376.2ms  in=  52t  out= 30t  kw='coral' ans='Your sister studies marine biology. She is specifically focusing on co'
+  [B_ams_text] elapsed 9.4s  hit_rate=80%
+
+--- mode: A_ams_prefix ---
+  [A_ams_prefix t10]       ret= 385.2ms  gen=12360.9ms  in=  12t  out= 30t  kw='chopin' ans='love piano User pianopro: love love classical SSP class：classUser(clas'
+  [A_ams_prefix t11]       ret= 561.0ms  gen=14538.3ms  in=  10t  out= 30t  kw='beethoven' ans='Symphony User favorite composer depends entirely upon personal taste p'
+  [A_ams_prefix t12] HIT  ret= 630.1ms  gen=15752.0ms  in=  11t  out= 30t  kw='tokyo' ans='visited User summer traveled via train: Why Tokyo user visited summer '
+  [A_ams_prefix t13]       ret= 394.1ms  gen=14358.8ms  in=   9t  out= 30t  kw='engineer' ans='sister Australia studying sister biologist sister marine reefs coral u'
+  [A_ams_prefix t14]       ret= 544.1ms  gen=14619.1ms  in=  11t  out= 30t  kw='max' ans='years dog dog named doggie dog retrie years userEmail threeUser Unfort'
+  [A_ams_prefix t15] HIT  ret= 602.2ms  gen=16028.1ms  in=  12t  out= 30t  kw='mandarin' ans='year learning startedUser Chinese. apologies, January User mistakenly '
+  [A_ams_prefix t16] HIT  ret= 642.7ms  gen=15785.0ms  in=  13t  out= 30t  kw='davis' ans='collect impr Ere latestUser getLast records: Davis User latest onPause'
+  [A_ams_prefix t17]       ret= 396.5ms  gen=15948.1ms  in=  13t  out= 29t  kw='thai' ans='avoid shell User food allergic shells avoid avoid peanuts food shell a'
+  [A_ams_prefix t18] HIT  ret= 387.2ms  gen=14606.7ms  in=  11t  out= 31t  kw='brown' ans='Brown User keyboard switches typically recommend switches compatible s'
+  [A_ams_prefix t19] HIT  ret= 458.1ms  gen=14978.5ms  in=  10t  out= 32t  kw='coral' ans='sister studying AustraliaUser replied sister Psychology Rap mar marine'
+  [A_ams_prefix] elapsed 155.2s  hit_rate=50%
+
+--- mode: C_ams_hybrid ---
+  [C_ams_hybrid t10]       ret= 450.2ms  gen=16566.5ms  in=  26t  out= 30t  kw='chopin' ans='especially Bach classical love piano favoriteUser love Chop noct noct '
+  [C_ams_hybrid t11]       ret= 599.1ms  gen=14187.6ms  in=  24t  out= 30t  kw='beethoven' ans='composer PSP pianoContext favorite composer particularly Ninth Symphon'
+  [C_ams_hybrid t12] HIT  ret= 380.4ms  gen=14645.1ms  in=  26t  out= 30t  kw='tokyo' ans='user summer traveled Tokyo Shib crossingfavoriteContext visited Munich'
+  [C_ams_hybrid t13]       ret= 444.4ms  gen=14678.2ms  in=  26t  out= 30t  kw='engineer' ans='welcome food DeveloperRedux Redux redux shell avoid allergic peanuts T'
+  [C_ams_hybrid t14] HIT  ret= 402.7ms  gen=16213.6ms  in=  29t  out= 30t  kw='max' ans='dog years retrie named Max three spa immer ipsum preschool Munich gold'
+  [C_ams_hybrid t15] HIT  ret= 387.4ms  gen=15612.1ms  in=  24t  out= 30t  kw='mandarin' ans='year learning Mandarin Chinese winterContext January started earlier y'
+  [C_ams_hybrid t16] HIT  ret= 386.2ms  gen=15056.9ms  in=  30t  out= 30t  kw='davis' ans='vinyl collect Blue Miles Davis Kind Munich latest collect records late'
+  [C_ams_hybrid t17] HIT  ret= 384.4ms  gen=14733.8ms  in=  30t  out= 30t  kw='thai' ans='avoid food allergic shell peanuts Thai shell allergic allergic peanuts'
+  [C_ams_hybrid t18] HIT  ret= 438.3ms  gen=15421.4ms  in=  26t  out= 30t  kw='brown' ans='keyboard switches Brown Cherry mechanical coding vem@Spring songwriter'
+  [C_ams_hybrid t19] HIT  ret= 405.2ms  gen=16518.8ms  in=  24t  out= 30t  kw='coral' ans='coral reefs Muss Perm perm Australia UserRepository studying marine bi'
+  [C_ams_hybrid] elapsed 159.2s  hit_rate=70%
+
+[done] report.json -> reports/session_viability_fresh_gpu/report.json
+[done] report.md   -> reports/session_viability_fresh_gpu/report.md
+
+======================================================================
+Decision table (hit-rate / avg-in-tokens / avg-retrieve-ms / avg-gen-ms):
+======================================================================
+  D_full_history      hit=100%  in_tok=  159  ret=   0.0ms  gen=  516.2ms
+  B_flat_cos          hit= 80%  in_tok=   55  ret=  30.8ms  gen=  506.6ms
+  B_ams_text          hit= 80%  in_tok=   54  ret= 415.6ms  gen=  385.5ms
+  A_ams_prefix        hit= 50%  in_tok=   11  ret= 500.1ms  gen=14897.5ms
+  C_ams_hybrid        hit= 70%  in_tok=   26  ret= 427.8ms  gen=15363.4ms
