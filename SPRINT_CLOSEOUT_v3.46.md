@@ -1,9 +1,10 @@
-# Sprint Close-Out · v3.46 · fresh-init ceiling reached, training path blocked on GPU
+# Sprint Close-Out · v3.46 · trained audit complete — 60-step training lowers score by 3
 
 **Handoff from**: CPU-only cloud agent on VM without GPU
-**Handoff to**: Cloud agent with GPU-enabled instance type
-**Current branch**: `AgentMemory/v346-revertE-topk-nonexclusive-7e97`
-**Current audit score**: **21/26** (elapsed 1456 s on CPU, fresh init, `AMS_DETERMINISTIC=1`)
+**Handoff to (closed)**: GPU-enabled cloud agent via SSH to vast.ai (NVIDIA H200, cu128, torch 2.11.0)
+**Current branch**: `AgentMemory/v346-trained-gpu-7e97` (child of `AgentMemory/v346-revertE-topk-nonexclusive-7e97`, PR #28)
+**Trained audit score**: **18/26** (elapsed 1250 s on H200, `AMS_TRAINED_WEIGHTS=ckpt/v346_trained.pt`, `AMS_DETERMINISTIC=1`)
+**Fresh-init baseline (for delta)**: 21/26 (unchanged, re-listed in §1.2)
 **Runner contract**: `v331_blackbox_eval.py` at v3.49 rev (4.24 substitution ban active)
 
 > This document is the full context for a new agent to pick up. Read this first, then read `V331_BLACKBOX_TEST_SPEC.md`, then the latest two SUT versions (`scheme_b_v344.py`, `scheme_b_v343.py` for comparison). Do not re-audit older versions — their numbers are in `reports/`.
@@ -55,10 +56,69 @@ Axis A is structurally capped by per-memory `semantic_emb (d_LLM=1536 floats)` d
 
 ---
 
+### 1.4 v3.46-trained audit table (60 training steps on H200, PR #28, reports/v346_trained_blackbox/)
+
+Training run: `python3 train_v346.py --steps 60` — 335 s wall on H200 (≈5.6 s/step), single-GPU, bf16 backbone, 113.8 M trainable non-backbone params, 11 memories stored pre-training. `Cfg` unchanged vs §1.1. Checkpoint: `ckpt/v346_trained.pt`, 455 MB, 202 non-backbone tensors, provenance `AgentMemory/v346-revertE-topk-nonexclusive-7e97`.
+
+**§5.6 mechanism observables (as data, per SPEC §7.7 norm)**:
+
+| Observable | Pre-train | Post-train | §5.6 target range | In range? |
+|---|---|---|---|---|
+| `bridge.tail_head.slot_heads[1][0].weight.abs().mean()` | `0.0` | `7.30e-4` | `[1e-4, 1e-2]` | yes |
+| `vocab_proj.proj[-1].weight.abs().mean()` | `0.0` | `5.49e-4` | `[1e-4, 1e-2]` | yes |
+
+Both necessary conditions named in §5.6 are met. §5.6 explicitly stated this does not guarantee the audit flips — audit data below is the test.
+
+**PASS (18)**: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.10, 4.12, 4.13, 4.14, 4.15, 4.16, 4.18, 4.22, 4.23, 4.24, 4.26, 4.9.
+
+**FAIL (8)**:
+
+| Case | Metric | Observed (trained) | Observed (fresh) | Threshold | Delta |
+|---|---|---|---|---|---|
+| 4.7 semantic_memory_counterfactual_pairs | `music_margin > 0 AND space_margin > 0` | 0, 0 | 0, 0 | > 0 | unchanged (still axis-C fail) |
+| 4.8 degeneration_quality | `avg_unique_token_ratio ≥ 0.35` | 0.296 on "The pianist" (worse than fresh 0.343) | 0.343 | ≥ 0.35 | **regressed** (trained more repetitive) |
+| 4.11 retrieval_topk_semantic_shift | any keyword in top-12 | 0 hits | 0 hits | ≥ 1 | unchanged |
+| 4.17 retrieval_prefix_decode_correlation_audit | `retrieval_strength__prefix_l2` finite + sign-correct | `null` (prefix_l2_shift=3.22e+11 → variance blew up) | passed | finite | **regression**: trained prefix has extreme L2 shift, correlation undefined |
+| 4.19 stepwise_label_mass_alignment_audit | staged alignment ≥ 0 | mis-aligned (decode picks " Options", `stage_counts.decode=2 < inject=6`) | mis-aligned | aligned | unchanged (cascade of 4.11) |
+| 4.20 rerank_stability_probe | both pairs jaccard ≥ 0.6 | `space_P2` jaccard=0.429 (spearman 0.961) | passed | both ≥ 0.6 | **regression**: training perturbed retrieval clustering on one prompt pair |
+| 4.21 decode_repetition_feedback_probe | `avg_max_repeat ≤ 3.0` | 5.0 (worse than fresh 4.67) | 4.67 | ≤ 3 | regressed |
+| 4.25 prefix_length_scaling_probe | `avg_mass_ratio_B_over_A > 1.10` | 0.824 (< 1.0, doubling L_mem *reduces* starter mass) | passed | > 1.10 | **regression**: trained slot weights do not scale positively with L_mem |
+
+**Net: +0 gains, −3 regressions (4.17/4.20/4.25), score 21 → 18.**
+
+Axis coverage (v3.49 runner):
+
+| Axis | v3.46 fresh | v3.46 trained |
+|---|---|---|
+| A compression | FAIL (8.97 / 10.0) | FAIL (8.97 / 10.0) — structural, unchanged |
+| B injection cost | PASS | PASS |
+| C fidelity | FAIL (8/11) | FAIL (6/11) |
+| D stability | FAIL (2/3) | FAIL (1/3) |
+
+### 1.5 Why 60-step training did not help — structural read
+
+The §5.6 observables moved into range, confirming the zero-init dead paths `tail_head.slot_heads[1]` and `vocab_proj.proj[-1]` did start receiving gradient. But none of the five pre-training FAILs flipped (4.7/4.8/4.11/4.19/4.21), and three previously-passing cases flipped FAIL:
+
+- **4.17**: `prefix_l2_shift = 3.22e+11`. The trained prefix magnitude is ~6 orders of magnitude larger than the baseline hidden-state norm. Something in the training loss (most likely `semantic_alignment` at weight 3.0 against an unconstrained prefix magnitude) drove the injected prefix to saturate — this is consistent with `sa = 9.9 → 9.0` barely moving across 60 steps while producing a prefix with huge norm. The audit's correlation computation drops to `null` when inputs are non-finite or near-constant.
+- **4.20**: `space_P2` pair jaccard dropped from ≥0.6 (fresh) to 0.429 (trained). Both prompts still rank `mid=5` first, but the tail of top-5 diverges between paraphrases — the trained retrieval clusters are sharper but more brittle to paraphrase.
+- **4.25**: doubling `L_mem` 8→16 decreased starter-positive mass ratio to 0.82 (< 1.10). The trained slots behave anti-correlated with `L_mem`: more slots = more dilution of the starter-direction signal. This is the inverse of what the probe requires.
+- **4.21**: `avg_max_repeat_per_content_token` went from 4.67 → 5.0. Training reinforced the corpus-local repetition pattern, making the 4.21 FAIL slightly worse.
+- **4.8**: "The pianist" unique-token ratio fell from 0.343 → 0.296. Same class as 4.21.
+
+The shared pattern: `sa` (3.0× weight, reconstruction-anchored to the Qwen embedding space) trained the ctx encoder to push prefix magnitude up without a counterbalancing norm constraint, and the tail/vocab paths gained small weights that reinforce the retrieved memories' own repetitive phrasing rather than distributed vocabulary. 60 steps on a 12-text corpus is too small and too narrow for the Qwen latent-space geometry to develop a dilution signal; it's exactly long enough to overfit the corpus's own repetition. This is the §5.7 **option A** territory (pre-amplification gap under current bridge depth/width + loss family), now confirmed with data rather than predicted.
+
+Two things this sprint **does not** recommend based on this data:
+
+1. Trivially training longer (100–300 steps) on the same 12-text corpus. With no norm regularizer on the prefix and `sa` weight at 3.0, longer training will push `prefix_l2_shift` further up and regress 4.17 more.
+2. Adding a prefix-norm regularizer or a decode-time `vocab_bias` amplifier. Both would be threshold-chasing under §3.3 anti-pattern (1) / §5.7 option B without a SPEC amendment.
+
+---
+
 ## 2. What changed during this sprint (audit-level, most recent first)
 
 | Version | Branch | Audit | Delta | Core change |
 |---|---|---|---|---|
+| v3.46-trained | `AgentMemory/v346-trained-gpu-7e97` | 18/26 | **−3** | 60-step train on H200 (train_v346.py §5.3); AMS_TRAINED_WEIGHTS loader added |
 | v3.46 | `AgentMemory/v346-revertE-topk-nonexclusive-7e97` | 21/26 | 0 | Revert [E] (one-line Cfg) |
 | v3.45-cond-buffer | `AgentMemory/v345-bridge-cond-buffer-7e97` | 21/26 | +1 | Add `_last_cond_*` mirror on `EmbBridge`; runner reads cond-preferred buffer for 4.23 |
 | v3.45-revertB-refreshD | `AgentMemory/v345-revertB-refreshD-7e97` | 20/26 | +2 | Revert [B] LN-dominated tail; add `_refresh_rare_keyword_indices()` in `write()` |
@@ -331,9 +391,8 @@ Existing checkpoints `ckpt/v344_trained.pt` and `ckpt/v348_stacked.pt` were trai
 | #24 | v344-rewrite-abcdef-audit | draft | v3.44 six-mechanism rewrite + 18/26 audit |
 | #25 | v345-revertB-refreshD | draft | Revert [B], refresh timing, 20/26 audit |
 | #26 | v345-bridge-cond-buffer | draft | cond-buffer aliasing fix, 21/26 audit |
-| #27 | v346-revertE-topk-nonexclusive | draft | **Current head.** Revert [E], 21/26 audit |
-
-New agent should create a child branch off #27's branch (or merge #27 first per user call) before starting `train_v346.py`. Suggested branch name: `AgentMemory/v346-trained-{suffix}-7e97`.
+| #27 | v346-revertE-topk-nonexclusive | draft | Revert [E], 21/26 fresh-init audit (base for #28) |
+| #28 | v346-trained-gpu-7e97 | draft | **Current head.** train_v346.py + AMS_TRAINED_WEIGHTS loader + **18/26 trained audit** |
 
 ---
 

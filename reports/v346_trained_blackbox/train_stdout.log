@@ -1,0 +1,72 @@
+`torch_dtype` is deprecated! Use `dtype` instead!
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 3759.52it/s]
+  [neighbor cache] vocab_size=151936 > 60000, skip
+[build] device=cuda  params total=1,657,496,024  trainable=113,781,720
+[build] initial memory count = 11
+[probe pre-train] {'tail_head_slot1_abs_mean': 0.0, 'vocab_proj_last_abs_mean': 0.0}
+[train] Trainer built  batch=3  steps=60
+/usr/local/lib/python3.12/dist-packages/torch/autograd/graph.py:869: UserWarning: Attempting to run cuBLAS, but there was no current CUDA context! Attempting to set the primary context... (Triggered internally at /pytorch/aten/src/ATen/cuda/CublasHandlePool.cpp:335.)
+  return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+step   0  total=481.6660  recon=3.979  sa=9.902  tsa=10.922  va=-0.000  fs=0.000  cs=0.000  dt=19.8s
+step   1  total=119.4697  recon=4.319  sa=9.650  tsa=10.858  va=-0.033  fs=1.604  cs=0.082  dt=13.3s
+step   2  total=63.2969  recon=4.862  sa=9.649  tsa=10.767  va=-0.071  fs=2.639  cs=0.171  dt=15.5s
+step   3  total=65.6129  recon=5.044  sa=9.489  tsa=10.812  va=-0.107  fs=4.250  cs=0.251  dt=9.5s
+step   4  total=60.1234  recon=4.077  sa=9.579  tsa=10.503  va=-0.139  fs=4.958  cs=0.342  dt=6.6s
+step   5  total=52.4816  recon=3.734  sa=9.189  tsa=10.851  va=-0.174  fs=4.333  cs=0.398  dt=6.6s
+step   6  total=54.1920  recon=4.909  sa=9.184  tsa=10.757  va=-0.186  fs=4.604  cs=0.482  dt=6.2s
+step   7  total=56.3720  recon=5.359  sa=9.227  tsa=10.805  va=-0.191  fs=4.625  cs=0.533  dt=5.5s
+step   8  total=51.0531  recon=3.712  sa=9.229  tsa=10.494  va=-0.188  fs=4.625  cs=0.617  dt=4.8s
+step   9  total=94.4659  recon=3.598  sa=9.477  tsa=10.841  va=-0.186  fs=4.688  cs=0.649  dt=4.7s
+step  10  total=61.6950  recon=4.405  sa=9.065  tsa=10.739  va=-0.195  fs=3.458  cs=0.682  dt=4.7s
+step  11  total=52.7172  recon=5.322  sa=9.583  tsa=10.796  va=-0.198  fs=3.292  cs=0.650  dt=4.3s
+step  12  total=45.9884  recon=3.586  sa=9.058  tsa=10.485  va=-0.191  fs=3.875  cs=0.619  dt=4.8s
+step  13  total=52.2593  recon=3.367  sa=9.481  tsa=10.834  va=-0.188  fs=4.250  cs=0.654  dt=4.3s
+step  14  total=49.7553  recon=4.421  sa=9.106  tsa=10.745  va=-0.197  fs=3.667  cs=0.555  dt=5.5s
+step  15  total=52.4259  recon=5.438  sa=9.204  tsa=10.796  va=-0.199  fs=4.979  cs=0.469  dt=5.1s
+step  16  total=50.0380  recon=4.447  sa=9.104  tsa=10.485  va=-0.193  fs=4.417  cs=0.380  dt=5.7s
+step  17  total=48.8605  recon=3.726  sa=9.431  tsa=10.833  va=-0.190  fs=5.125  cs=0.558  dt=5.1s
+step  18  total=48.3267  recon=4.572  sa=9.038  tsa=10.750  va=-0.200  fs=3.979  cs=0.318  dt=5.6s
+step  19  total=50.6655  recon=5.417  sa=9.249  tsa=10.795  va=-0.203  fs=3.938  cs=0.245  dt=4.7s
+step  20  total=47.9978  recon=3.788  sa=9.193  tsa=10.486  va=-0.196  fs=4.604  cs=0.192  dt=5.7s
+step  21  total=49.9174  recon=5.196  sa=9.271  tsa=10.835  va=-0.194  fs=5.458  cs=0.336  dt=4.3s
+step  22  total=50.1498  recon=4.459  sa=9.097  tsa=10.750  va=-0.200  fs=3.729  cs=0.127  dt=5.3s
+step  23  total=48.8436  recon=5.121  sa=9.182  tsa=10.783  va=-0.201  fs=4.208  cs=0.013  dt=4.9s
+step  24  total=45.9512  recon=3.584  sa=9.173  tsa=10.483  va=-0.192  fs=4.917  cs=0.067  dt=5.2s
+step  25  total=47.0343  recon=3.568  sa=9.270  tsa=10.836  va=-0.190  fs=4.396  cs=0.187  dt=4.5s
+step  26  total=48.0266  recon=4.522  sa=9.197  tsa=10.743  va=-0.195  fs=4.083  cs=0.090  dt=5.0s
+step  27  total=48.9258  recon=5.023  sa=9.183  tsa=10.769  va=-0.197  fs=4.042  cs=0.000  dt=4.8s
+step  28  total=45.0445  recon=3.705  sa=9.071  tsa=10.484  va=-0.189  fs=4.104  cs=0.000  dt=5.6s
+step  29  total=45.7887  recon=3.594  sa=9.327  tsa=10.841  va=-0.189  fs=4.562  cs=0.131  dt=4.3s
+step  30  total=47.0911  recon=4.428  sa=9.139  tsa=10.736  va=-0.197  fs=4.354  cs=0.011  dt=5.6s
+step  31  total=48.5491  recon=5.016  sa=9.254  tsa=10.764  va=-0.200  fs=3.771  cs=0.000  dt=4.5s
+step  32  total=44.7300  recon=3.554  sa=8.999  tsa=10.478  va=-0.195  fs=3.896  cs=0.000  dt=5.2s
+step  33  total=46.2654  recon=3.570  sa=9.469  tsa=10.834  va=-0.193  fs=4.500  cs=0.077  dt=3.8s
+step  34  total=46.0381  recon=4.344  sa=8.967  tsa=10.712  va=-0.202  fs=3.208  cs=0.000  dt=5.3s
+step  35  total=48.6987  recon=5.101  sa=9.326  tsa=10.758  va=-0.204  fs=3.708  cs=0.000  dt=4.7s
+step  36  total=43.3815  recon=3.426  sa=8.971  tsa=10.488  va=-0.199  fs=3.083  cs=0.011  dt=5.1s
+step  37  total=45.2655  recon=3.550  sa=9.418  tsa=10.830  va=-0.195  fs=4.271  cs=0.000  dt=3.8s
+step  38  total=45.1332  recon=4.191  sa=8.932  tsa=10.692  va=-0.204  fs=2.875  cs=0.000  dt=5.5s
+step  39  total=48.3996  recon=5.008  sa=9.289  tsa=10.743  va=-0.206  fs=3.354  cs=0.000  dt=5.1s
+step  40  total=43.3024  recon=3.371  sa=8.995  tsa=10.492  va=-0.200  fs=3.125  cs=0.000  dt=6.5s
+step  41  total=44.9616  recon=3.537  sa=9.401  tsa=10.819  va=-0.197  fs=4.271  cs=0.000  dt=4.5s
+step  42  total=45.3224  recon=4.156  sa=8.973  tsa=10.678  va=-0.204  fs=3.438  cs=0.000  dt=5.7s
+step  43  total=47.1863  recon=4.826  sa=9.105  tsa=10.724  va=-0.206  fs=3.042  cs=0.000  dt=4.3s
+step  44  total=43.5735  recon=3.324  sa=9.084  tsa=10.500  va=-0.199  fs=3.354  cs=0.000  dt=5.2s
+step  45  total=45.7495  recon=3.484  sa=9.320  tsa=10.801  va=-0.196  fs=4.042  cs=0.000  dt=3.8s
+step  46  total=45.2532  recon=4.188  sa=8.992  tsa=10.664  va=-0.204  fs=2.833  cs=0.000  dt=5.4s
+step  47  total=47.9007  recon=4.686  sa=9.106  tsa=10.707  va=-0.205  fs=2.979  cs=0.000  dt=3.8s
+step  48  total=43.8816  recon=3.265  sa=9.144  tsa=10.499  va=-0.199  fs=3.229  cs=0.000  dt=5.4s
+step  49  total=44.3041  recon=3.397  sa=9.150  tsa=10.767  va=-0.196  fs=4.042  cs=0.000  dt=3.5s
+step  50  total=44.7811  recon=4.123  sa=9.011  tsa=10.656  va=-0.204  fs=2.542  cs=0.000  dt=5.3s
+step  51  total=47.2175  recon=4.680  sa=9.172  tsa=10.695  va=-0.204  fs=2.771  cs=0.000  dt=3.8s
+step  52  total=43.4362  recon=3.186  sa=9.046  tsa=10.513  va=-0.199  fs=3.229  cs=0.017  dt=5.4s
+step  53  total=43.3770  recon=3.393  sa=9.157  tsa=10.748  va=-0.197  fs=3.833  cs=0.000  dt=3.7s
+step  54  total=44.9270  recon=4.081  sa=9.071  tsa=10.658  va=-0.204  fs=2.729  cs=0.000  dt=5.4s
+step  55  total=46.7531  recon=4.699  sa=9.128  tsa=10.679  va=-0.205  fs=2.604  cs=0.000  dt=3.9s
+step  56  total=44.5620  recon=3.268  sa=9.096  tsa=10.522  va=-0.199  fs=2.792  cs=0.000  dt=5.3s
+step  57  total=46.0898  recon=3.215  sa=9.105  tsa=10.729  va=-0.197  fs=3.771  cs=0.000  dt=4.3s
+step  58  total=49.9087  recon=4.080  sa=9.089  tsa=10.660  va=-0.204  fs=2.917  cs=0.000  dt=4.8s
+step  59  total=49.2678  recon=4.716  sa=9.049  tsa=10.668  va=-0.205  fs=2.792  cs=0.000  dt=4.3s
+[probe post-train] {'tail_head_slot1_abs_mean': 0.0007297309930436313, 'vocab_proj_last_abs_mean': 0.0005491127376444638}
+[train] elapsed 335.1s  avg/step=5.58s
+[save] wrote ckpt/v346_trained.pt  tensors=202
