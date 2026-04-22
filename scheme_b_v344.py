@@ -2494,7 +2494,70 @@ class MemLLM(nn.Module):
         self.backbone.register_forward_pre_hook(_capture_query_ids)
         self._build_wte_neighbor_cache()
         self._compute_filler_centroid()
+        self._maybe_load_trained_weights()
         return self
+
+    def _maybe_load_trained_weights(self):
+        """Optional hook: if env AMS_TRAINED_WEIGHTS points to a checkpoint written by
+        train_v346.py (or any sibling trainer), load non-backbone params/buffers with
+        strict=False. Backbone is intentionally excluded — trainer only saves trainables
+        + non-backbone buffers (see train_v346.py §5.3). Missing/unexpected keys are
+        logged but not fatal, so a partial-shape ckpt fails loud only on shape mismatch.
+        """
+        path = os.environ.get("AMS_TRAINED_WEIGHTS", "").strip()
+        if not path: return
+        if not os.path.exists(path):
+            print(f"  [AMS_TRAINED_WEIGHTS] file not found: {path} — skipping")
+            return
+        try:
+            blob = torch.load(path, map_location="cpu", weights_only=False)
+        except Exception as e:
+            print(f"  [AMS_TRAINED_WEIGHTS] torch.load failed: {type(e).__name__}: {e}")
+            return
+        sd = blob.get("state_dict", blob) if isinstance(blob, dict) else blob
+        if not isinstance(sd, dict):
+            print(f"  [AMS_TRAINED_WEIGHTS] unexpected format (no 'state_dict' mapping) — skipping")
+            return
+        dev = next(self.parameters()).device
+        own_params = dict(self.named_parameters())
+        own_buffers = dict(self.named_buffers())
+        loaded, skipped = 0, 0
+        shape_errs = []
+        with torch.no_grad():
+            for n, t in sd.items():
+                if n.startswith("backbone"): skipped += 1; continue
+                if n in own_params:
+                    p = own_params[n]
+                    if p.shape != t.shape:
+                        shape_errs.append((n, tuple(p.shape), tuple(t.shape))); continue
+                    p.data.copy_(t.to(dev, dtype=p.dtype))
+                    loaded += 1
+                elif n in own_buffers:
+                    b = own_buffers[n]
+                    if b.shape != t.shape:
+                        shape_errs.append((n, tuple(b.shape), tuple(t.shape))); continue
+                    b.data.copy_(t.to(dev, dtype=b.dtype))
+                    loaded += 1
+                else:
+                    skipped += 1
+        prov = blob.get("provenance", "?") if isinstance(blob, dict) else "?"
+        total_nonbb_ckpt = sum(1 for k in sd if not k.startswith("backbone"))
+        print(f"  [AMS_TRAINED_WEIGHTS] loaded={loaded} skipped={skipped} "
+              f"shape_errs={len(shape_errs)}  path={path}  provenance={prov}")
+        if shape_errs:
+            for n, s_model, s_ckpt in shape_errs[:5]:
+                print(f"    ! shape mismatch (skipped) {n}: model={s_model} ckpt={s_ckpt}")
+            if len(shape_errs) > 5:
+                print(f"    ... and {len(shape_errs) - 5} more shape mismatches, all skipped")
+        # Raise only if essentially nothing loaded AND the ckpt had content to offer:
+        # this catches the "loaded a v344/v348 ckpt against v3.46 shapes" mistake
+        # warned about in SPRINT_CLOSEOUT_v3.46.md \u00a76, without breaking probes
+        # like 4.25 that scale L_mem and legitimately have a few mismatching tensors.
+        if loaded == 0 and total_nonbb_ckpt > 10:
+            raise RuntimeError(
+                f"AMS_TRAINED_WEIGHTS loaded 0 non-backbone tensors "
+                f"(ckpt had {total_nonbb_ckpt}); shape_errs={len(shape_errs)}. "
+                f"ckpt appears incompatible with current SUT shapes")
 
     def _compute_filler_centroid(self):
         if self.content_classifier is None or self.backbone is None:
