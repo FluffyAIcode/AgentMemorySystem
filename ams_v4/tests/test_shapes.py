@@ -79,32 +79,20 @@ def test_cfg4_invariant_fiber_divisibility():
     raise AssertionError("non-divisible fiber dim should have raised")
 
 
-def test_remaining_stubs_raise_not_implemented():
-    """Components not yet implemented must still raise NotImplementedError.
+def test_v45_constructs_without_backbone():
+    """After v4.5, all core v4 modules construct cleanly without loading a backbone.
 
-    All v4.1 / v4.2 / v4.3 components are implemented. v4.4 + v4.5 stubs remain.
+    Kept as a compile-time smoke check on CPU: no NotImplementedError must
+    remain, and all modules must importable and constructible from Cfg4.
     """
     from ams_v4 import Cfg4
-    cfg = Cfg4()
-
     from ams_v4.projection.bridge import EmbBridge4
     from ams_v4.bridge.memllm import MemLLM4
-
-    stubs = [
-        ("EmbBridge4.__init__",  lambda: EmbBridge4(cfg)),
-        ("MemLLM4.__init__",     lambda: MemLLM4(cfg)),
-    ]
-    for name, thunk in stubs:
-        try:
-            thunk()
-        except NotImplementedError as e:
-            assert "v4-skel" in str(e), f"{name}: expected 'v4-skel:' marker, got '{e}'"
-        except Exception as e:
-            raise AssertionError(
-                f"{name}: expected NotImplementedError, got {type(e).__name__}: {e}"
-            )
-        else:
-            raise AssertionError(f"{name}: should have raised NotImplementedError")
+    cfg = Cfg4()
+    # These construct without loading the backbone (backbone.load() is separate)
+    EmbBridge4(cfg)
+    MemLLM4(cfg)
+    # Assertion implicit: no exceptions raised
 
 
 def _run_all():
@@ -114,7 +102,7 @@ def _run_all():
         test_cfg4_invariant_n_kakeya_sets_min_2,
         test_cfg4_invariant_prefix_slots_sum,
         test_cfg4_invariant_fiber_divisibility,
-        test_remaining_stubs_raise_not_implemented,
+        test_v45_constructs_without_backbone,
     ]
     failed = []
     for t in tests:

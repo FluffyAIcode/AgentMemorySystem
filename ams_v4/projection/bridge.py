@@ -1,21 +1,13 @@
-"""EmbBridge4 — the prefix → backbone injection bridge.
+"""EmbBridge4 — thin prefix → backbone bridge.
 
-Thin compared to v3.46's EmbBridge: v4's CrossBundleAttention already
-returns the prefix in the correct (L_mem, d_LLM) shape. EmbBridge4 handles:
-
-  1. prepending the prefix to the backbone's input embeddings
-  2. assembling the matching attention mask + position_ids
-  3. optionally running CFG-style double-forward (kept optional to make the
-     benchmark gap between A_ams_prefix and D_full_history auditable — with
-     CFG off, the prefix channel is isolated cleanly)
-
-No logit shaping, content_bias, strict_overlap gate, or keyword_tail_slot
-logic lives here in v4. Those were v3.46 decode-time workarounds for the
-lack of explicit bundle axes; v4 fixes the upstream cause and does not
-need them.
+The prefix channel in v4 is minimal: prepend the (L_mem, d_LLM) prefix tensor
+to the token embeddings and extend the attention mask to cover it. No CFG,
+no content_bias, no logit shaping — those were v3.46 decode-time patches
+for missing upstream structure. v4's upstream is explicit, so we don't
+reintroduce them here.
 """
 from __future__ import annotations
-from typing import Optional, Tuple
+from typing import Tuple
 
 import torch
 import torch.nn as nn
@@ -25,32 +17,42 @@ from ams_v4.core.types import Tensor
 
 
 class EmbBridge4(nn.Module):
-    """Prefix-prepend bridge. Takes a (B, L_mem, d_LLM) prefix and a token
-    input (ids, mask) and returns the combined input for the backbone.
-    """
+    """Prefix-prepend bridge."""
 
     def __init__(self, cfg: Cfg4):
         super().__init__()
         self.cfg = cfg
-        # v4.5 implementation:
-        #   self.prefix_post_ln = nn.LayerNorm(cfg.d_LLM)  # redundant with CrossBundleAttention's
-        #                                                  # but cheap, catches numeric drift
-        raise NotImplementedError("v4-skel: EmbBridge4.__init__ — lands in v4.5")
+        self.prefix_post_ln = nn.LayerNorm(cfg.d_LLM)
 
-    def build_inputs(self, prefix: Tensor, ids: Tensor, mask: Tensor,
-                     wte: nn.Embedding) -> Tuple[Tensor, Tensor]:
+    def build_inputs(
+        self, prefix: Tensor, ids: Tensor, mask: Tensor, wte: nn.Module,
+    ) -> Tuple[Tensor, Tensor]:
         """Merge prefix with token embeddings.
 
-        prefix: (B, L_mem, d_LLM)
-        ids:    (B, T)
-        mask:   (B, T)
-        wte:    the backbone's word-token embedding module
+        prefix:     (B, L_mem, d_LLM)
+        ids:        (B, T)
+        mask:       (B, T)  (1 = attend, 0 = pad)
+        wte:        backbone word-token embedding module (callable on int ids)
 
         Returns:
           input_embeds: (B, L_mem + T, d_LLM)
           input_mask:   (B, L_mem + T)
-
-        Position IDs are handled by the caller because they depend on the
-        backbone's rotary/relative encoding scheme.
         """
-        raise NotImplementedError("v4-skel: EmbBridge4.build_inputs — lands in v4.5")
+        assert prefix.dim() == 3 and prefix.shape[-1] == self.cfg.d_LLM
+        assert prefix.shape[1] == self.cfg.L_mem, (
+            f"prefix must have L_mem={self.cfg.L_mem} slots, got {prefix.shape[1]}"
+        )
+        assert ids.dim() == 2 and mask.dim() == 2
+        assert ids.shape[0] == prefix.shape[0] == mask.shape[0]
+
+        tok_emb = wte(ids)                                # (B, T, d_LLM)
+        # Cast prefix to backbone dtype for concat
+        prefix_n = self.prefix_post_ln(prefix.to(tok_emb.dtype))
+        input_embeds = torch.cat([prefix_n, tok_emb], dim=1)
+
+        B = mask.shape[0]
+        prefix_mask = torch.ones(
+            B, self.cfg.L_mem, dtype=mask.dtype, device=mask.device,
+        )
+        input_mask = torch.cat([prefix_mask, mask], dim=1)
+        return input_embeds, input_mask
