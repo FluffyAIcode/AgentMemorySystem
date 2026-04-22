@@ -79,28 +79,40 @@ def test_cfg4_invariant_fiber_divisibility():
     raise AssertionError("non-divisible fiber dim should have raised")
 
 
-def test_all_skeleton_components_raise_not_implemented():
-    """Constructing the stubbed modules must raise NotImplementedError with the
-    'v4-skel:' marker. This is the contract for downstream v4.1-v4.5 PRs.
+def test_remaining_stubs_raise_not_implemented():
+    """Components not yet implemented must still raise NotImplementedError
+    with the 'v4-skel:' marker. Removed entries from this list as each PR
+    (v4.2, v4.3, v4.4, v4.5) implements its components.
     """
     from ams_v4 import Cfg4
     cfg = Cfg4()
 
-    from ams_v4.core.mem_store import MemStore
-    store = MemStore(cfg)  # __init__ does NOT raise — but its methods do
-    for method_call in [
-        lambda: store.add(None),
-        lambda: store.remove(0),
-        lambda: store.verify_consistency(),
-    ]:
+    # v4.2 — encoders (still stubs)
+    from ams_v4.bundles.temporal import TimeEncoder
+    from ams_v4.bundles.topic import TopicEncoder
+    from ams_v4.bundles.context import ContextEncoder
+
+    # v4.3 — kakeya set/registry (still stubs)
+    from ams_v4.kakeya.set import KakeyaSet
+    from ams_v4.kakeya.registry import KakeyaRegistry
+
+    stubs = [
+        ("TimeEncoder.__init__",    lambda: TimeEncoder(cfg)),
+        ("TopicEncoder.__init__",   lambda: TopicEncoder(cfg)),
+        ("ContextEncoder.__init__", lambda: ContextEncoder(cfg)),
+        ("KakeyaRegistry.define_sets", lambda: KakeyaRegistry(cfg).define_sets([])),
+    ]
+    for name, thunk in stubs:
         try:
-            method_call()
+            thunk()
         except NotImplementedError as e:
-            assert "v4-skel" in str(e)
+            assert "v4-skel" in str(e), f"{name}: expected 'v4-skel:' marker, got '{e}'"
         except Exception as e:
-            raise AssertionError(f"expected NotImplementedError, got {type(e).__name__}: {e}")
+            raise AssertionError(
+                f"{name}: expected NotImplementedError, got {type(e).__name__}: {e}"
+            )
         else:
-            raise AssertionError("method should have raised NotImplementedError")
+            raise AssertionError(f"{name}: should have raised NotImplementedError")
 
 
 def _run_all():
@@ -110,7 +122,7 @@ def _run_all():
         test_cfg4_invariant_n_kakeya_sets_min_2,
         test_cfg4_invariant_prefix_slots_sum,
         test_cfg4_invariant_fiber_divisibility,
-        test_all_skeleton_components_raise_not_implemented,
+        test_remaining_stubs_raise_not_implemented,
     ]
     failed = []
     for t in tests:
