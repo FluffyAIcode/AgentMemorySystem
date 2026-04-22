@@ -226,21 +226,20 @@ MODE_RUNNERS: Dict[str, Callable] = {
 
 # ─── Driver ──────────────────────────────────────────────────────────────
 
-def _build_model(seed: int, llm_name: str) -> MemLLM4:
+def _build_model(seed: int, llm_name: str,
+                 trained_weights: Optional[str] = None) -> MemLLM4:
     torch.manual_seed(seed)
-    # Read backbone dim from the model config
     from transformers import AutoConfig
     ac = AutoConfig.from_pretrained(llm_name)
-    d_LLM = ac.hidden_size
-    vocab_size = ac.vocab_size
-
     cfg = Cfg4(
         llm_name=llm_name,
-        d_LLM=d_LLM,
-        vocab_size=vocab_size,
+        d_LLM=ac.hidden_size,
+        vocab_size=ac.vocab_size,
     )
     model = MemLLM4(cfg)
     model.load()
+    if trained_weights:
+        model.load_trained_weights(trained_weights)
     return model
 
 
@@ -329,21 +328,30 @@ def main():
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--llm-name", type=str, default="Qwen/Qwen2.5-1.5B-Instruct")
     ap.add_argument("--only-modes", type=str, default="")
+    ap.add_argument("--trained-weights", type=str, default="",
+                    help="path to v4 trainer checkpoint (ckpt/v4_trained.pt). "
+                         "If empty, runs fresh-init.")
     args = ap.parse_args()
 
     os.makedirs(args.out, exist_ok=True)
     session = build_session(args.n_facts)
 
     print("=" * 70)
-    print("Session-layer viability spike · AMS v4 (fresh-init)")
+    mode_label = "trained" if args.trained_weights else "fresh-init"
+    print(f"Session-layer viability spike · AMS v4 ({mode_label})")
     print(f"  backbone = {args.llm_name}")
+    if args.trained_weights:
+        print(f"  trained weights = {args.trained_weights}")
     print(f"  max_new_tokens = {args.mt}")
     print(f"  session turns = {len(session)} "
           f"({sum(1 for t in session if t.kind=='fact')} facts + "
           f"{sum(1 for t in session if t.kind=='query')} queries)")
     print("=" * 70)
 
-    model = _build_model(args.seed, args.llm_name)
+    model = _build_model(
+        args.seed, args.llm_name,
+        trained_weights=args.trained_weights or None,
+    )
     dev_name = (
         torch.cuda.get_device_name(0) if model.backbone.device.type == "cuda" else "cpu"
     )
@@ -377,6 +385,7 @@ def main():
             "backbone": args.llm_name,
             "device": dev_name,
             "n_facts": args.n_facts,
+            "trained_weights": args.trained_weights or None,
         },
         "session": [asdict(t) for t in session],
         "results": results,
