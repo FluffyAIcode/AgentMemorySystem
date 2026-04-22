@@ -48,6 +48,9 @@ class LLMBackbone4(nn.Module):
         # Freeze backbone parameters — v4 does not train the LM
         for p in self.model.parameters():
             p.requires_grad_(False)
+        # Default device: use CUDA if available and caller didn't override
+        if device is None and torch.cuda.is_available():
+            device = torch.device("cuda")
         if device is not None:
             self.model.to(device)
         # Validate hidden_size
