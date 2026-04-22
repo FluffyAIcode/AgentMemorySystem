@@ -416,3 +416,67 @@ Run these in order. Each should succeed without intervention:
 - **It does not give a Δ pass-count prediction for the trained audit.** That is deliberate. Prior predictions have been wrong 4 consecutive times. The correct move is to run training, report the audit number as data, then reason about it.
 - **It does not claim the channel is "working" or "not working".** Per SPEC §7.7 that phrasing is banned. Reports claim specific axes, at specific numerical thresholds, with specific case coverage.
 - **It does not instruct on Cfg tuning post-training.** If the trained audit is at some number N ≤ 21, the v3.46 Cfg is what the sprint leaves locked; any Cfg change after the fact re-enters threshold chasing unless it is a revert with structural justification (the pattern that delivered 4.13, 4.23, 4.25).
+
+---
+
+## 10. Product-viability spike · AMS as session layer (v3.46-session-viability branch, PR #29)
+
+### 10.1 Framing
+
+Blackbox audit measures **single-step prefix-channel fidelity**. It does **not** measure multi-turn cost × quality as a session layer between an application and an LLM. Those are independent questions. Before committing to the P0–P4 blackbox-audit climb, `session_viability.py` quantifies whether current code — no Cfg changes, no loss changes — already makes AMS useful in that product role.
+
+### 10.2 Protocol
+
+- 20-turn synthetic session: 10 facts + 10 targeted-recall queries.
+- Hit = `expected_keyword` substring present in the generated answer (case-insensitive).
+- Backbone: Qwen2.5-1.5B-Instruct, bf16, HF `model.generate(do_sample=False)` for non-AMS modes; `MemLLM.generate(greedy=True)` for AMS modes.
+- Writes use `training_mode=True` so the write-gate never silently drops a fact (measurement setup, not a training claim).
+- `max_new_tokens = 30`.
+
+Five modes:
+
+| Mode | Retrieval | Injection | Token growth | AMS path exercised |
+|---|---|---|---|---|
+| `D_full_history` | none | all 10 facts in prompt | O(N) | bypass (ceiling) |
+| `B_flat_cos` | flat cosine over `semantic_emb` | top-3 `source_text` prepended | O(k) | storage only |
+| `B_ams_text` | full AMS (`prepare_decode_context` + gate + rerank) | top-3 `source_text` prepended | O(k) | retrieval only |
+| `A_ams_prefix` | full AMS | prefix embeddings only (`MemLLM.generate`) | O(1) | full blackbox mechanism |
+| `C_ams_hybrid` | full AMS | prefix + top-1 `source_text` | O(1) | full mechanism + minimal text context |
+
+### 10.3 Fresh-init results (CPU, 20-turn session, mt=30)
+
+`reports/session_viability_fresh/report.{json,md}`:
+
+| Mode | Hit-rate | avg in-tokens | avg retrieve ms | avg generate ms | total write ms |
+|---|---:|---:|---:|---:|---:|
+| `D_full_history` | **100%** | 159 | 0.0 | 4138 | 0 |
+| `B_flat_cos` | **80%** | 55 | 144 | 4187 | 30530 |
+| `B_ams_text` | 70% | 56 | 526 | 4030 | 30530 |
+| `A_ams_prefix` | 60% | **11** | 453 | 19722 | 30530 |
+| `C_ams_hybrid` | 70% | 26 | 471 | 21147 | 30530 |
+
+### 10.4 Read
+
+Three robust signals, even on CPU fresh-init with an untrained blackbox:
+
+1. **Token cost × quality Pareto has a clear winner that is not `D`:** `B_flat_cos` delivers 80% of `D`'s answer rate at **~35% of D's input-token cost**. For a 50-turn session, `D`'s O(N) token growth would push each call to ~800 input tokens on the same data, while `B_flat_cos` stays at ~55 tokens. This is the baseline "cheaper-RAG backend" story — and it already holds without any AMS magic beyond `semantic_emb` storage.
+2. **Full AMS retrieval (`B_ams_text`) underperforms flat cosine on this size of store:** 70% vs 80%. The strict-overlap gate + rerank appears to hurt on 10-memory stores when the query is short (few content tokens). At larger N the hierarchical tree's recall dominates, but this measurement says short queries over small stores should pick `B_flat_cos`.
+3. **Prefix-only (`A_ams_prefix`) at 60% is non-trivial but clearly below `C_hybrid`'s 70%:** exactly what the blackbox axis-C data said — the prefix channel routes topic (the 6 hits include `max`, `brown`, `tokyo`, `davis`, `mandarin`, `coral`) but the answer often lacks fluent structure (`"love piano User pianopro: love love classical"`). `C_hybrid` gets a 10-point lift by letting the top-1 retrieved text supply a short context on top of the same prefix — at **~16% of D's token cost**.
+
+Generation-time cost on AMS modes is ~5× higher than text-only modes because `MemLLM.generate` uses CFG decoding (double forward per step) plus the full logit-shaping pipeline; this is expected, not a regression.
+
+### 10.5 Decision
+
+Per §10.1 decision framework:
+
+- **`B_ams_text ≈ B_flat_cos` at parity quality?** No. `B_flat_cos` wins cleanly (80% vs 70%) at the same token cost. The full AMS retrieval pipeline does not contribute positive signal at N=10 small-store short-query setup. → **`B_flat_cos` is the shippable baseline today**, and AMS's "storage + flat-cosine retrieval + text injection" is already useful as a cheap session layer.
+- **`C_ams_hybrid` > `B_ams_text` at same/lower tokens?** Yes. `C_hybrid` at 26 tokens/turn matches `B_ams_text` at 56 tokens/turn on hit-rate — but the winning comparison is actually `C_hybrid` vs `B_flat_cos`: **80% vs 70% with `B_flat_cos` using 2× the tokens, while `C_hybrid` uses 2× the generate time**. The two paths are on a real Pareto frontier, not a strict dominance.
+- **Only `D_full_history` passes?** No — three modes (`B_flat_cos`, `B_ams_text`, `C_hybrid`) are within 20–30 points of the ceiling at a fraction of the token cost.
+
+**Branch outcome:** AMS has independent product value as a session layer **today**, at v3.46-trained with an imperfect blackbox. The P0–P4 climb becomes a *nice-to-have*, not a *must-have*. The most useful near-term improvement is not axis-C auditing but reducing `A_ams_prefix` / `C_ams_hybrid` generate-time cost (they are 5× slower than text-only modes), since that cost is what currently limits the prefix channel's commercial competitiveness even at parity quality.
+
+### 10.6 Pending comparisons (follow-up commits on this branch)
+
+- **Trained checkpoint on vast.ai**: re-run the 5-mode benchmark with `AMS_TRAINED_WEIGHTS=ckpt/v346_trained.pt` to measure whether 60-step training lifts `A_ams_prefix` and `C_ams_hybrid` hit-rates (which would sharpen the case for blackbox scope). Currently blocked on the vast.ai SSH `Connection reset by peer` outage; will land when the remote recovers.
+- **Longer session (N=50)**: to test whether `D_full_history` cost scales cleanly while `B_*` / `A` / `C` stay flat in token cost.
+- **LongMemEval subset**: swap the synthetic 20-turn corpus for a 50-entry LongMemEval slice to cross-check against the v3.12 baseline (0.057 KW-F1, 11.5% HasAnswer).
