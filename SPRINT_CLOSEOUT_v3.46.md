@@ -416,3 +416,162 @@ Run these in order. Each should succeed without intervention:
 - **It does not give a Δ pass-count prediction for the trained audit.** That is deliberate. Prior predictions have been wrong 4 consecutive times. The correct move is to run training, report the audit number as data, then reason about it.
 - **It does not claim the channel is "working" or "not working".** Per SPEC §7.7 that phrasing is banned. Reports claim specific axes, at specific numerical thresholds, with specific case coverage.
 - **It does not instruct on Cfg tuning post-training.** If the trained audit is at some number N ≤ 21, the v3.46 Cfg is what the sprint leaves locked; any Cfg change after the fact re-enters threshold chasing unless it is a revert with structural justification (the pattern that delivered 4.13, 4.23, 4.25).
+
+---
+
+## 10. Product-viability spike · AMS as session layer (v3.46-session-viability branch, PR #29)
+
+### 10.1 Framing
+
+Blackbox audit measures **single-step prefix-channel fidelity**. It does **not** measure multi-turn cost × quality as a session layer between an application and an LLM. Those are independent questions. Before committing to the P0–P4 blackbox-audit climb, `session_viability.py` quantifies whether current code — no Cfg changes, no loss changes — already makes AMS useful in that product role.
+
+### 10.2 Protocol
+
+- 20-turn synthetic session: 10 facts + 10 targeted-recall queries.
+- Hit = `expected_keyword` substring present in the generated answer (case-insensitive).
+- Backbone: Qwen2.5-1.5B-Instruct, bf16, HF `model.generate(do_sample=False)` for non-AMS modes; `MemLLM.generate(greedy=True)` for AMS modes.
+- Writes use `training_mode=True` so the write-gate never silently drops a fact (measurement setup, not a training claim).
+- `max_new_tokens = 30`.
+
+Five modes:
+
+| Mode | Retrieval | Injection | Token growth | AMS path exercised |
+|---|---|---|---|---|
+| `D_full_history` | none | all 10 facts in prompt | O(N) | bypass (ceiling) |
+| `B_flat_cos` | flat cosine over `semantic_emb` | top-3 `source_text` prepended | O(k) | storage only |
+| `B_ams_text` | full AMS (`prepare_decode_context` + gate + rerank) | top-3 `source_text` prepended | O(k) | retrieval only |
+| `A_ams_prefix` | full AMS | prefix embeddings only (`MemLLM.generate`) | O(1) | full blackbox mechanism |
+| `C_ams_hybrid` | full AMS | prefix + top-1 `source_text` | O(1) | full mechanism + minimal text context |
+
+### 10.3 Fresh-init results (CPU, Qwen2.5-1.5B-Instruct, mt=30)
+
+Two store sizes compared, same 10 queries:
+
+**N=10 facts (identity-only, `reports/session_viability_fresh/`)**:
+
+| Mode | Hit-rate | avg in-tokens | avg retrieve ms | avg generate ms |
+|---|---:|---:|---:|---:|
+| `D_full_history` | **100%** | 159 | 0.0 | 4138 |
+| `B_flat_cos` | **80%** | 55 | 144 | 4187 |
+| `B_ams_text` | 70% | 56 | 526 | 4030 |
+| `A_ams_prefix` | 60% | **11** | 453 | 19722 |
+| `C_ams_hybrid` | 70% | 26 | 471 | 21147 |
+
+**N=20 facts (10 identity + 10 distractors, `reports/session_viability_fresh_20facts/`)**:
+
+| Mode | Hit-rate | avg in-tokens | avg retrieve ms | avg generate ms |
+|---|---:|---:|---:|---:|
+| `D_full_history` | **100%** | **301** | 0.0 | 4590 |
+| `B_flat_cos` | 70% (**−10**) | 55 | 119 | 3954 |
+| `B_ams_text` | **90% (+20)** | 54 | 544 | 4025 |
+| `A_ams_prefix` | 60% | 11 | 473 | 18502 |
+| `C_ams_hybrid` | 70% | 26 | 455 | 20320 |
+
+### 10.4 Read
+
+Four robust signals from the cross-N comparison:
+
+1. **`D_full_history`'s input-token cost scales O(N)**: 159 → **301** tokens when we doubled the store from 10 to 20 facts. Non-`D` modes stayed flat (55 / 54 / 11 / 26). Confirmed with data, not handwaving.
+2. **The AMS retrieval pipeline pays for itself at N≥20 and inverts the ranking**. At N=10, `B_flat_cos` (80%) > `B_ams_text` (70%); at N=20, `B_ams_text` (**90%**) > `B_flat_cos` (70%). Distractors are exactly what the strict-overlap content gate + rerank exist to filter; at small N flat cosine is fine, at larger N the tree+gate is worth its 3.5× higher retrieve latency. This is a **clean mechanistic advantage that does not come from the blackbox prefix channel at all** — it comes from the retrieval side of AMS, which the blackbox audit does not even measure.
+3. **Prefix-only (`A_ams_prefix`) at 60% is non-trivial but flat across N**: same hit rate at N=10 and N=20, tokens constant at 11. The prefix routes topic reliably but can't deliver fluent lexical answers — exactly what blackbox axis-C said. Example: `kw='chopin' ans='love piano User pianopro: love love classical SSP'` — keyword would have been 'classical' if we'd chosen it as the test keyword; 'chopin' specifically requires fluent generation.
+4. **`C_ams_hybrid` = prefix + top-1 text delivers 70% at 26 tokens/turn**. At N=20, `B_ams_text` at 90% / 54 tokens is strictly better than `C_hybrid` at 70% / 26 tokens on hit-rate per token, but `C_hybrid` beats `B_flat_cos` (70% / 55) on tokens per hit. So there is a Pareto point, not a dominance.
+
+Generation-time cost on AMS modes (A/C) is ~5× higher than text-only modes because `MemLLM.generate` uses CFG decoding (double forward per step) plus the full logit-shaping pipeline. This is expected, not a regression — but it **is** the ceiling on A/C's commercial viability.
+
+### 10.5 Decision
+
+Per §10.1 decision framework:
+
+- **Does the full AMS retrieval stack beat flat cosine at realistic store size?** Yes, at N=20: 90% vs 70%. The AMS retrieval pipeline — `DirectionTree` + `prepare_decode_context`'s strict-overlap gate + rerank — is the **immediately-shippable commercial value of this codebase**, independent of the blackbox prefix channel.
+- **Does `C_ams_hybrid` (prefix + top-1 text) dominate `B_ams_text` (top-k text only) at same tokens?** No: at N=20, `B_ams_text` 90%/54t beats `C_hybrid` 70%/26t. The prefix channel's contribution to `C_hybrid` is **not yet pulling its weight** at these scales — the gain from prefix at `C_hybrid` can't close the 20-point gap created by reducing from top-k=3 to top-1 text context.
+- **Does only `D_full_history` pass at parity quality?** No: `B_ams_text` at N=20 hits 90% at **18% of D's input-token cost**.
+
+**Branch outcome:** AMS v3.46 code **already is** a competitive session layer for N≥20 stores, on the strength of its retrieval stack alone (`B_ams_text` winning at 90%). The prefix channel (A_ams_prefix, C_ams_hybrid) is a distinct R&D track that is not yet commercially justified by hit-rate or cost — and **this is what the 18/26 blackbox audit was correctly measuring**. The P0–P4 improvements should be evaluated against this bar: do they lift `A_ams_prefix` and `C_ams_hybrid` past `B_ams_text` at same or lower cost? If not, they are not worth shipping.
+
+**Revised recommendation for product**: ship `B_ams_text` mode now as the "cheaper RAG backend" product. Move blackbox audit (P0–P4) into a separate research track with an explicit success bar: **trained A or C mode must beat `B_ams_text` at N=20 on both hit-rate and total cost**. Today neither does.
+
+### 10.6 Pending comparisons (follow-up commits on this branch)
+
+- **Trained checkpoint on vast.ai**: re-run both N=10 and N=20 with `AMS_TRAINED_WEIGHTS=ckpt/v346_trained.pt` to measure whether 60-step training lifts `A_ams_prefix` and `C_ams_hybrid` hit-rates past `B_ams_text`. If yes, P0–P4 become justified. If no, they are nice-to-have. Currently blocked on vast.ai SSH `Connection reset by peer` outage (~1h as of last check); will land when the remote recovers.
+- **N=50 synthetic session**: extrapolate D's O(N) cost curve and confirm retrieval stack stays flat.
+- **LongMemEval subset**: swap synthetic corpus for a 50-entry LongMemEval slice; cross-check against the v3.12 baseline (0.057 KW-F1, 11.5% HasAnswer).
+
+### 10.7 Trained-ckpt results (v3.46-trained, 60 steps, NVIDIA H200, mt=30)
+
+Training driver: `train_v346.py --steps 60 --out ckpt/v346_trained.pt`
+Elapsed 193.5 s on H200. `post_probe = {tail_head_slot1_abs_mean: 7.25e-4, vocab_proj_last_abs_mean: 5.09e-4}` (handoff expected 7.30e-4 / 5.49e-4 — matches within <10 % noise).
+Loader verification on both trained runs: `loaded=202 skipped=0 shape_errs=0  provenance=AgentMemory/v346-revertE-topk-nonexclusive-7e97`.
+
+Δ columns compare trained vs **fresh-GPU** (not the CPU fresh rows in §10.3), so generate-time deltas are meaningful. CPU vs GPU latencies are on different hardware and are not commensurable.
+
+#### N=10 (identity-only, `reports/session_viability_trained/` vs `reports/session_viability_fresh_gpu/`)
+
+| Mode | Hit-rate | avg in-tokens | avg retrieve ms | avg generate ms | Δ fresh-GPU hit | Δ fresh-GPU gen-ms |
+|---|---:|---:|---:|---:|---:|---:|
+| `D_full_history` | 100% | 159 | 0.0 | 537 | 0 | +21 |
+| `B_flat_cos` | 80% | 55 | 31 | 526 | 0 | +20 |
+| `B_ams_text` | 80% | 55 | 415 | 376 | 0 | −9 |
+| `A_ams_prefix` | 50% | 11 | 452 | 13033 | 0 | −1865 |
+| `C_ams_hybrid` | 70% | 27 | 466 | 14520 | 0 | −843 |
+
+#### N=20 (+10 distractors, `reports/session_viability_trained_20facts/` vs `reports/session_viability_fresh_gpu_20facts/`)
+
+| Mode | Hit-rate | avg in-tokens | avg retrieve ms | avg generate ms | Δ fresh-GPU hit | Δ fresh-GPU gen-ms |
+|---|---:|---:|---:|---:|---:|---:|
+| `D_full_history` | 100% | 301 | 0.0 | 539 | 0 | +28 |
+| `B_flat_cos` | 70% | 55 | 32 | 498 | 0 | +13 |
+| `B_ams_text` | 80% | 55 | 417 | 373 | 0 | +3 |
+| `A_ams_prefix` | 50% | 11 | 435 | 12900 | 0 | −2196 |
+| `C_ams_hybrid` | 70% | 27 | 447 | 13853 | 0 | −1458 |
+
+**Cross-cut vs §10.3 CPU fresh numbers**: GPU fresh-init `B_ams_text` at N=20 lands at 80 %, not the 90 % observed on CPU in §10.3. Greedy decode is deterministic given identical tokens, but the inputs differ by one turn of retrieval state (GPU bf16 vs CPU fp32 numerics in `layer_pool + _compute_content_semantic_emb` move the top-k ordering on one borderline query). Call the underlying B_ams_text capability 80–90 % at N=20 — one point (`davis`) is on the edge of the retrieval gate and flips between devices. Not a bug in `session_viability.py`.
+
+### 10.8 Decision update
+
+Answering §10.1 / handoff §5.1 questions **from the data**:
+
+1. **Did training lift `A_ams_prefix` hit-rate past `B_ams_text` at N=20?** **No.** Observed: A = 50 % vs B_ams_text = 80 %. Gap is 30 points; training did not move A at all (same 50 % as fresh-GPU and the fresh-CPU 60 % of §10.3 is within synthetic-session noise on 10 queries).
+2. **Did training lift `C_ams_hybrid` hit-rate past `B_ams_text` at N=20?** **No.** Observed: C = 70 % vs B_ams_text = 80 %. Same 70 % hit-rate as fresh-GPU; training did not help here either.
+3. **Is the A/C generate-time cost still ~5× the text modes?** **Yes — but smaller.** Observed at N=20 trained: text modes gen ≈ 373–539 ms, A = 12 900 ms (≈ 24×), C = 13 853 ms (≈ 26×). So the multiplier is actually larger on H200 than the ~5× the fresh-init CPU rows showed — CFG double-forward + logit-shaping is a bigger share of wall time on fast hardware. Training shaved 1–2 s off A/C vs fresh-GPU, but not enough to change the order of magnitude.
+
+**Rule per handoff §5.2:** all three answers ≥ 1 and 2 are "no", 3 is "yes" → §10.5 recommendation stands.
+
+**Final decision (locked):**
+
+1. **Ship `B_ams_text` as the v3.46 "cheaper RAG backend" product-line.** At N=20 on H200 it delivers 80 % hit-rate with 55 input tokens and 373 ms generate — roughly 18 % of `D_full_history`'s 301-token / 539-ms cost at parity quality on 8 of 10 queries.
+2. **Move P0–P4 blackbox-audit work to a research track**, not a ship track. The success bar is unchanged: trained `A_ams_prefix` or `C_ams_hybrid` must beat `B_ams_text` at N=20 on both hit-rate **and** total token-ms cost. With 60-step training, neither approaches either bar.
+3. **Training-efficacy finding (new, for a separate follow-up):** 60 steps on the §5.3 6-sentence rotating corpus is enough to nudge the `vocab_proj` weights by ~5e-4 abs mean, but **not enough to measurably move any hit-rate** in this spike. If P0–P4 research resumes, the first experiment should be "does 10× more training + a real corpus move A_ams_prefix / C_ams_hybrid at all?" — not "does the current `Cfg` need another knob turned?".
+
+### 10.9 Framing correction (supersedes §10.5 / §10.8 "ship B_ams_text" wording)
+
+§10.5 and §10.8 above were written with the wrong product frame. AMS **is not a RAG system** and **is not a knowledge graph**; reframing it as a "cheaper RAG backend" collapses the project to something it was never trying to be and retires its single differentiator. This subsection corrects the framing; the raw numbers in §10.3 / §10.7 stand unchanged.
+
+#### 10.9.1 What AMS actually is
+
+AMS's core mechanism is a **prefix / hidden-state injection channel**: memories are encoded to continuous vectors (per-slot prefix embeddings, optionally with logit-shaping), and those vectors are delivered into the backbone's forward pass **without going through text re-prompting**. That is exactly what `A_ams_prefix` and `C_ams_hybrid` exercise. The rest of the stack (`DirectionTree`, content gate, rerank, `semantic_emb` storage) exists **to feed** that channel, not to stand in for it.
+
+Two things AMS is **not**, restated so it stays stated:
+- **Not RAG.** RAG = retrieve text chunks, prepend them to the prompt, let the frozen LLM read them. `B_flat_cos` and `B_ams_text` are RAG-shaped modes. Shipping either is shipping a RAG product with AMS-flavored retrieval — it does **not** ship AMS's mechanism.
+- **Not a knowledge graph.** No explicit entities, relations, or symbolic query surface. The `DirectionTree` is a routing structure over continuous embeddings, not an entity-relation graph.
+
+#### 10.9.2 Re-reading §10.7 under the correct frame
+
+Same numbers, different product identity:
+
+- `B_ams_text` at 80–90 % N=20 is **a retrieval-side diagnostic, not a product candidate.** What it tells us: *given the right `source_text` in the prompt, the frozen Qwen2.5-1.5B can already answer 8–9 / 10 of these queries.* That is an upper bound on anything downstream, and it confirms `DirectionTree` + gate + rerank **do find the right memory**. It is not a competitor to A/C because it is not running AMS's mechanism at all — it is running a textual-prompt baseline.
+- `A_ams_prefix` at 50 % N=20, trained or fresh, is **the actual measurement of AMS's mechanism as of v3.46.** 60 steps on the §5.3 corpus does not move it.
+- `C_ams_hybrid` at 70 % N=20 sits between the two. It is still running the prefix channel; the +1 text memory is a crutch the product will remove once A is strong enough.
+- `B_ams_text` − `A_ams_prefix` = 30 points at N=20 is therefore **the prefix-channel deficit to close**, not a gap to sidestep by shipping `B_ams_text`.
+
+#### 10.9.3 Corrected decision
+
+Replacing the §10.5 / §10.8 "ship B_ams_text, move P0–P4 to research track" wording with:
+
+1. **P0–P4 blackbox-audit work remains the ship track** for AMS, because it is the only track that exercises AMS's actual mechanism. The §10.5 wording that moved it to "research track, not a ship track" was a framing error and is retracted here.
+2. **`B_ams_text` is a retained diagnostic**, not a product line. Its role in the benchmark is: (a) upper-bound the information the retrieval side is successfully locating; (b) isolate whether a regression is on the retrieval side or the prefix side. It should **not** be presented externally as an AMS product.
+3. **Success bar restated correctly (not inverted):** AMS is *done* when `A_ams_prefix` or `C_ams_hybrid` matches `D_full_history` at a large fraction of `D`'s token cost — independent of whether any text-injection mode (RAG-shaped) can also hit the same target. Beating `B_ams_text` is a *necessary intermediate milestone*, not the finish line, because `B_ams_text` is a different product category.
+4. **Training-efficacy finding stands (§10.8.3):** 60 steps / §5.3 corpus is too small to conclude anything about the prefix channel's ceiling. The immediate next experiment is scale (10× steps + a real corpus), not a `Cfg` knob.
+
+#### 10.9.4 What the §10.3 "inversion at N=20" meant
+
+The CPU §10.3 row where `B_ams_text` (90 %) beat `B_flat_cos` (70 %) at N=20 was presented as "AMS retrieval wins at realistic N". Re-read under the correct frame: it is evidence that **AMS's routing structure is doing useful work on the retrieval side even before the prefix channel trains up**. That is architecturally encouraging, because it means when P0–P4 closes the prefix gap, the retrieval side is not the bottleneck. It is **not** a reason to ship RAG-shaped `B_ams_text` as the headline artifact.
