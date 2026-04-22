@@ -443,40 +443,55 @@ Five modes:
 | `A_ams_prefix` | full AMS | prefix embeddings only (`MemLLM.generate`) | O(1) | full blackbox mechanism |
 | `C_ams_hybrid` | full AMS | prefix + top-1 `source_text` | O(1) | full mechanism + minimal text context |
 
-### 10.3 Fresh-init results (CPU, 20-turn session, mt=30)
+### 10.3 Fresh-init results (CPU, Qwen2.5-1.5B-Instruct, mt=30)
 
-`reports/session_viability_fresh/report.{json,md}`:
+Two store sizes compared, same 10 queries:
 
-| Mode | Hit-rate | avg in-tokens | avg retrieve ms | avg generate ms | total write ms |
-|---|---:|---:|---:|---:|---:|
-| `D_full_history` | **100%** | 159 | 0.0 | 4138 | 0 |
-| `B_flat_cos` | **80%** | 55 | 144 | 4187 | 30530 |
-| `B_ams_text` | 70% | 56 | 526 | 4030 | 30530 |
-| `A_ams_prefix` | 60% | **11** | 453 | 19722 | 30530 |
-| `C_ams_hybrid` | 70% | 26 | 471 | 21147 | 30530 |
+**N=10 facts (identity-only, `reports/session_viability_fresh/`)**:
+
+| Mode | Hit-rate | avg in-tokens | avg retrieve ms | avg generate ms |
+|---|---:|---:|---:|---:|
+| `D_full_history` | **100%** | 159 | 0.0 | 4138 |
+| `B_flat_cos` | **80%** | 55 | 144 | 4187 |
+| `B_ams_text` | 70% | 56 | 526 | 4030 |
+| `A_ams_prefix` | 60% | **11** | 453 | 19722 |
+| `C_ams_hybrid` | 70% | 26 | 471 | 21147 |
+
+**N=20 facts (10 identity + 10 distractors, `reports/session_viability_fresh_20facts/`)**:
+
+| Mode | Hit-rate | avg in-tokens | avg retrieve ms | avg generate ms |
+|---|---:|---:|---:|---:|
+| `D_full_history` | **100%** | **301** | 0.0 | 4590 |
+| `B_flat_cos` | 70% (**−10**) | 55 | 119 | 3954 |
+| `B_ams_text` | **90% (+20)** | 54 | 544 | 4025 |
+| `A_ams_prefix` | 60% | 11 | 473 | 18502 |
+| `C_ams_hybrid` | 70% | 26 | 455 | 20320 |
 
 ### 10.4 Read
 
-Three robust signals, even on CPU fresh-init with an untrained blackbox:
+Four robust signals from the cross-N comparison:
 
-1. **Token cost × quality Pareto has a clear winner that is not `D`:** `B_flat_cos` delivers 80% of `D`'s answer rate at **~35% of D's input-token cost**. For a 50-turn session, `D`'s O(N) token growth would push each call to ~800 input tokens on the same data, while `B_flat_cos` stays at ~55 tokens. This is the baseline "cheaper-RAG backend" story — and it already holds without any AMS magic beyond `semantic_emb` storage.
-2. **Full AMS retrieval (`B_ams_text`) underperforms flat cosine on this size of store:** 70% vs 80%. The strict-overlap gate + rerank appears to hurt on 10-memory stores when the query is short (few content tokens). At larger N the hierarchical tree's recall dominates, but this measurement says short queries over small stores should pick `B_flat_cos`.
-3. **Prefix-only (`A_ams_prefix`) at 60% is non-trivial but clearly below `C_hybrid`'s 70%:** exactly what the blackbox axis-C data said — the prefix channel routes topic (the 6 hits include `max`, `brown`, `tokyo`, `davis`, `mandarin`, `coral`) but the answer often lacks fluent structure (`"love piano User pianopro: love love classical"`). `C_hybrid` gets a 10-point lift by letting the top-1 retrieved text supply a short context on top of the same prefix — at **~16% of D's token cost**.
+1. **`D_full_history`'s input-token cost scales O(N)**: 159 → **301** tokens when we doubled the store from 10 to 20 facts. Non-`D` modes stayed flat (55 / 54 / 11 / 26). Confirmed with data, not handwaving.
+2. **The AMS retrieval pipeline pays for itself at N≥20 and inverts the ranking**. At N=10, `B_flat_cos` (80%) > `B_ams_text` (70%); at N=20, `B_ams_text` (**90%**) > `B_flat_cos` (70%). Distractors are exactly what the strict-overlap content gate + rerank exist to filter; at small N flat cosine is fine, at larger N the tree+gate is worth its 3.5× higher retrieve latency. This is a **clean mechanistic advantage that does not come from the blackbox prefix channel at all** — it comes from the retrieval side of AMS, which the blackbox audit does not even measure.
+3. **Prefix-only (`A_ams_prefix`) at 60% is non-trivial but flat across N**: same hit rate at N=10 and N=20, tokens constant at 11. The prefix routes topic reliably but can't deliver fluent lexical answers — exactly what blackbox axis-C said. Example: `kw='chopin' ans='love piano User pianopro: love love classical SSP'` — keyword would have been 'classical' if we'd chosen it as the test keyword; 'chopin' specifically requires fluent generation.
+4. **`C_ams_hybrid` = prefix + top-1 text delivers 70% at 26 tokens/turn**. At N=20, `B_ams_text` at 90% / 54 tokens is strictly better than `C_hybrid` at 70% / 26 tokens on hit-rate per token, but `C_hybrid` beats `B_flat_cos` (70% / 55) on tokens per hit. So there is a Pareto point, not a dominance.
 
-Generation-time cost on AMS modes is ~5× higher than text-only modes because `MemLLM.generate` uses CFG decoding (double forward per step) plus the full logit-shaping pipeline; this is expected, not a regression.
+Generation-time cost on AMS modes (A/C) is ~5× higher than text-only modes because `MemLLM.generate` uses CFG decoding (double forward per step) plus the full logit-shaping pipeline. This is expected, not a regression — but it **is** the ceiling on A/C's commercial viability.
 
 ### 10.5 Decision
 
 Per §10.1 decision framework:
 
-- **`B_ams_text ≈ B_flat_cos` at parity quality?** No. `B_flat_cos` wins cleanly (80% vs 70%) at the same token cost. The full AMS retrieval pipeline does not contribute positive signal at N=10 small-store short-query setup. → **`B_flat_cos` is the shippable baseline today**, and AMS's "storage + flat-cosine retrieval + text injection" is already useful as a cheap session layer.
-- **`C_ams_hybrid` > `B_ams_text` at same/lower tokens?** Yes. `C_hybrid` at 26 tokens/turn matches `B_ams_text` at 56 tokens/turn on hit-rate — but the winning comparison is actually `C_hybrid` vs `B_flat_cos`: **80% vs 70% with `B_flat_cos` using 2× the tokens, while `C_hybrid` uses 2× the generate time**. The two paths are on a real Pareto frontier, not a strict dominance.
-- **Only `D_full_history` passes?** No — three modes (`B_flat_cos`, `B_ams_text`, `C_hybrid`) are within 20–30 points of the ceiling at a fraction of the token cost.
+- **Does the full AMS retrieval stack beat flat cosine at realistic store size?** Yes, at N=20: 90% vs 70%. The AMS retrieval pipeline — `DirectionTree` + `prepare_decode_context`'s strict-overlap gate + rerank — is the **immediately-shippable commercial value of this codebase**, independent of the blackbox prefix channel.
+- **Does `C_ams_hybrid` (prefix + top-1 text) dominate `B_ams_text` (top-k text only) at same tokens?** No: at N=20, `B_ams_text` 90%/54t beats `C_hybrid` 70%/26t. The prefix channel's contribution to `C_hybrid` is **not yet pulling its weight** at these scales — the gain from prefix at `C_hybrid` can't close the 20-point gap created by reducing from top-k=3 to top-1 text context.
+- **Does only `D_full_history` pass at parity quality?** No: `B_ams_text` at N=20 hits 90% at **18% of D's input-token cost**.
 
-**Branch outcome:** AMS has independent product value as a session layer **today**, at v3.46-trained with an imperfect blackbox. The P0–P4 climb becomes a *nice-to-have*, not a *must-have*. The most useful near-term improvement is not axis-C auditing but reducing `A_ams_prefix` / `C_ams_hybrid` generate-time cost (they are 5× slower than text-only modes), since that cost is what currently limits the prefix channel's commercial competitiveness even at parity quality.
+**Branch outcome:** AMS v3.46 code **already is** a competitive session layer for N≥20 stores, on the strength of its retrieval stack alone (`B_ams_text` winning at 90%). The prefix channel (A_ams_prefix, C_ams_hybrid) is a distinct R&D track that is not yet commercially justified by hit-rate or cost — and **this is what the 18/26 blackbox audit was correctly measuring**. The P0–P4 improvements should be evaluated against this bar: do they lift `A_ams_prefix` and `C_ams_hybrid` past `B_ams_text` at same or lower cost? If not, they are not worth shipping.
+
+**Revised recommendation for product**: ship `B_ams_text` mode now as the "cheaper RAG backend" product. Move blackbox audit (P0–P4) into a separate research track with an explicit success bar: **trained A or C mode must beat `B_ams_text` at N=20 on both hit-rate and total cost**. Today neither does.
 
 ### 10.6 Pending comparisons (follow-up commits on this branch)
 
-- **Trained checkpoint on vast.ai**: re-run the 5-mode benchmark with `AMS_TRAINED_WEIGHTS=ckpt/v346_trained.pt` to measure whether 60-step training lifts `A_ams_prefix` and `C_ams_hybrid` hit-rates (which would sharpen the case for blackbox scope). Currently blocked on the vast.ai SSH `Connection reset by peer` outage; will land when the remote recovers.
-- **Longer session (N=50)**: to test whether `D_full_history` cost scales cleanly while `B_*` / `A` / `C` stay flat in token cost.
-- **LongMemEval subset**: swap the synthetic 20-turn corpus for a 50-entry LongMemEval slice to cross-check against the v3.12 baseline (0.057 KW-F1, 11.5% HasAnswer).
+- **Trained checkpoint on vast.ai**: re-run both N=10 and N=20 with `AMS_TRAINED_WEIGHTS=ckpt/v346_trained.pt` to measure whether 60-step training lifts `A_ams_prefix` and `C_ams_hybrid` hit-rates past `B_ams_text`. If yes, P0–P4 become justified. If no, they are nice-to-have. Currently blocked on vast.ai SSH `Connection reset by peer` outage (~1h as of last check); will land when the remote recovers.
+- **N=50 synthetic session**: extrapolate D's O(N) cost curve and confirm retrieval stack stays flat.
+- **LongMemEval subset**: swap synthetic corpus for a 50-entry LongMemEval slice; cross-check against the v3.12 baseline (0.057 KW-F1, 11.5% HasAnswer).

@@ -50,30 +50,59 @@ class Turn:
     text: str
     expected_keyword: Optional[str] = None  # for "query" turns
 
-SYNTHETIC_SESSION: List[Turn] = [
-    # 10 facts (will be written to memory for A/B/C; prepended as history for D)
-    Turn(0,  "fact",  "I love classical piano, especially Chopin nocturnes."),
-    Turn(1,  "fact",  "My favorite composer is Beethoven, particularly the Ninth Symphony."),
-    Turn(2,  "fact",  "Last summer I traveled to Tokyo and visited the Shibuya crossing."),
-    Turn(3,  "fact",  "I work as a software engineer on distributed systems."),
-    Turn(4,  "fact",  "My dog is a golden retriever named Max, he is three years old."),
-    Turn(5,  "fact",  "I started learning Mandarin Chinese in January this year."),
-    Turn(6,  "fact",  "I collect vinyl records; my latest is Kind of Blue by Miles Davis."),
-    Turn(7,  "fact",  "I am allergic to peanuts and shellfish, so I avoid Thai food."),
-    Turn(8,  "fact",  "I use a mechanical keyboard with Cherry MX Brown switches for coding."),
-    Turn(9,  "fact",  "My sister is a marine biologist studying coral reefs in Australia."),
-    # 10 targeted recall queries, each with an expected keyword substring
-    Turn(10, "query", "What kind of music do I love?",                          expected_keyword="chopin"),
-    Turn(11, "query", "Who is my favorite composer?",                            expected_keyword="beethoven"),
-    Turn(12, "query", "Where did I travel last summer?",                         expected_keyword="tokyo"),
-    Turn(13, "query", "What is my job?",                                         expected_keyword="engineer"),
-    Turn(14, "query", "What is my dog's name?",                                  expected_keyword="max"),
-    Turn(15, "query", "What language am I learning this year?",                  expected_keyword="mandarin"),
-    Turn(16, "query", "What is the latest record in my collection?",             expected_keyword="davis"),
-    Turn(17, "query", "What cuisine should I avoid because of allergies?",       expected_keyword="thai"),
-    Turn(18, "query", "What keyboard switches do I use?",                        expected_keyword="brown"),
-    Turn(19, "query", "What does my sister study?",                              expected_keyword="coral"),
+_FACTS_20 = [
+    "I love classical piano, especially Chopin nocturnes.",
+    "My favorite composer is Beethoven, particularly the Ninth Symphony.",
+    "Last summer I traveled to Tokyo and visited the Shibuya crossing.",
+    "I work as a software engineer on distributed systems.",
+    "My dog is a golden retriever named Max, he is three years old.",
+    "I started learning Mandarin Chinese in January this year.",
+    "I collect vinyl records; my latest is Kind of Blue by Miles Davis.",
+    "I am allergic to peanuts and shellfish, so I avoid Thai food.",
+    "I use a mechanical keyboard with Cherry MX Brown switches for coding.",
+    "My sister is a marine biologist studying coral reefs in Australia.",
+    # 10 extra \"distractor\" facts (identity-unrelated, to enlarge the store
+    # without giving extra answers for the 10 queries above)
+    "Chess openings like the Sicilian Defense require deep theoretical study.",
+    "Sourdough bread depends on long fermentation for a complex flavor.",
+    "Marathons require consistent training plans spread over several months.",
+    "Film noir often uses low-key lighting and moral ambiguity.",
+    "Lunar eclipses occur when Earth sits between the Sun and the Moon.",
+    "Kubernetes schedules containers across a cluster using a control plane.",
+    "Tea ceremonies in Kyoto follow precise, centuries-old protocols.",
+    "Ancient Rome's aqueducts carried water across tens of kilometers.",
+    "Sudoku puzzles are constraint-satisfaction problems solvable by backtracking.",
+    "Honey crystallizes faster when stored below about ten degrees Celsius.",
 ]
+
+_QUERIES_10 = [
+    ("What kind of music do I love?",                         "chopin"),
+    ("Who is my favorite composer?",                          "beethoven"),
+    ("Where did I travel last summer?",                       "tokyo"),
+    ("What is my job?",                                       "engineer"),
+    ("What is my dog's name?",                                "max"),
+    ("What language am I learning this year?",                "mandarin"),
+    ("What is the latest record in my collection?",           "davis"),
+    ("What cuisine should I avoid because of allergies?",     "thai"),
+    ("What keyboard switches do I use?",                      "brown"),
+    ("What does my sister study?",                            "coral"),
+]
+
+
+def build_session(n_facts: int = 10) -> List[Turn]:
+    """Build a session with the first n_facts facts, then all 10 queries.
+
+    n_facts=10 uses only the self-referential facts (default, Pareto-clean
+    comparison). n_facts=20 adds 10 distractors so store size doubles;
+    this stresses retrieval and amplifies D_full_history's O(N) token cost.
+    """
+    n_facts = max(1, min(n_facts, len(_FACTS_20)))
+    facts = [Turn(i, "fact", _FACTS_20[i]) for i in range(n_facts)]
+    queries = [Turn(n_facts + i, "query", q, expected_keyword=kw)
+               for i, (q, kw) in enumerate(_QUERIES_10)]
+    return facts + queries
+
+SYNTHETIC_SESSION: List[Turn] = build_session(10)
 
 
 # =====================================================================
@@ -439,7 +468,13 @@ def main():
     ap.add_argument("--skip-modes", type=str, default="",
                     help="Comma-separated modes to skip")
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--n-facts", type=int, default=10,
+                    help="How many facts to seed (10 = identity-only; 20 = +10 distractors). "
+                         "Queries are always the same 10.")
     args = ap.parse_args()
+
+    global SYNTHETIC_SESSION
+    SYNTHETIC_SESSION = build_session(args.n_facts)
 
     os.makedirs(args.out, exist_ok=True)
     trained_path = os.environ.get("AMS_TRAINED_WEIGHTS", "").strip() or None
