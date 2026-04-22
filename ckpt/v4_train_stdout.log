@@ -1,0 +1,65 @@
+[build] device=cuda:0  params total=1,548,592,467  trainable=4,878,163
+[probe pre-train] {'cross_attn.lift_time[0].w_abs_mean': 0.08888682723045349, 'topic_enc.down_project[0].w_abs_mean': 0.012753468006849289, 'bundle_time._axis_raw_abs_mean': 0.056366968899965286}
+step   0  total=1.6098  psa=2.359  baa=0.787  cbi=0.182  rec=0.0000  wp=0.000  dt=1.2s
+step   1  total=1.4452  psa=2.365  baa=0.457  cbi=0.171  rec=0.0000  wp=0.000  dt=0.4s
+step   2  total=1.9403  psa=3.499  baa=0.314  cbi=0.169  rec=0.0000  wp=0.000  dt=0.5s
+step   3  total=1.9376  psa=3.406  baa=0.371  cbi=0.244  rec=0.0000  wp=0.000  dt=0.4s
+step   4  total=1.4239  psa=2.420  baa=0.313  cbi=0.287  rec=0.0000  wp=0.000  dt=0.3s
+step   5  total=1.1593  psa=1.972  baa=0.263  cbi=0.209  rec=0.0000  wp=0.000  dt=0.2s
+step   6  total=1.8706  psa=3.454  baa=0.123  cbi=0.412  rec=0.0000  wp=0.000  dt=0.2s
+step   7  total=1.7909  psa=3.330  baa=0.139  cbi=0.281  rec=0.0000  wp=0.000  dt=0.2s
+step   8  total=1.4880  psa=2.606  baa=0.277  cbi=0.234  rec=0.0000  wp=0.000  dt=0.2s
+step   9  total=1.1365  psa=2.022  baa=0.188  cbi=0.157  rec=0.0000  wp=0.000  dt=0.2s
+step  10  total=1.6664  psa=3.155  baa=0.119  cbi=0.148  rec=0.0000  wp=0.000  dt=0.2s
+step  11  total=1.7352  psa=3.328  baa=0.117  cbi=0.064  rec=0.0000  wp=0.000  dt=0.2s
+step  12  total=1.3888  psa=2.469  baa=0.243  cbi=0.162  rec=0.0000  wp=0.000  dt=0.2s
+step  13  total=1.0399  psa=1.911  baa=0.122  cbi=0.117  rec=0.0000  wp=0.000  dt=0.3s
+step  14  total=1.5980  psa=3.025  baa=0.115  cbi=0.142  rec=0.0000  wp=0.000  dt=0.2s
+step  15  total=1.6726  psa=3.206  baa=0.104  cbi=0.090  rec=0.0000  wp=0.000  dt=0.2s
+step  16  total=1.2867  psa=2.308  baa=0.208  cbi=0.144  rec=0.0000  wp=0.000  dt=0.3s
+step  17  total=1.0031  psa=1.849  baa=0.107  cbi=0.124  rec=0.0000  wp=0.000  dt=0.2s
+step  18  total=1.5072  psa=2.846  baa=0.110  cbi=0.146  rec=0.0000  wp=0.000  dt=0.2s
+step  19  total=1.6033  psa=3.068  baa=0.103  cbi=0.089  rec=0.0000  wp=0.000  dt=0.2s
+step  20  total=1.1854  psa=2.159  baa=0.161  cbi=0.128  rec=0.0000  wp=0.000  dt=0.2s
+step  21  total=1.0926  psa=2.030  baa=0.127  cbi=0.072  rec=0.0000  wp=0.000  dt=0.2s
+step  22  total=1.4280  psa=2.691  baa=0.106  cbi=0.148  rec=0.0000  wp=0.000  dt=0.2s
+step  23  total=1.5532  psa=2.978  baa=0.101  cbi=0.069  rec=0.0000  wp=0.000  dt=0.2s
+step  24  total=1.1272  psa=2.093  baa=0.131  cbi=0.074  rec=0.0000  wp=0.000  dt=0.2s
+step  25  total=0.9581  psa=1.757  baa=0.127  cbi=0.080  rec=0.0000  wp=0.000  dt=0.3s
+step  26  total=1.4378  psa=2.715  baa=0.101  cbi=0.148  rec=0.0000  wp=0.000  dt=0.2s
+step  27  total=1.5050  psa=2.884  baa=0.106  cbi=0.050  rec=0.0000  wp=0.000  dt=0.2s
+step  28  total=1.0188  psa=1.910  baa=0.110  cbi=0.044  rec=0.0000  wp=0.000  dt=0.2s
+step  29  total=0.8991  psa=1.661  baa=0.115  cbi=0.057  rec=0.0000  wp=0.000  dt=0.2s
+step  30  total=1.3489  psa=2.531  baa=0.109  cbi=0.146  rec=0.0000  wp=0.000  dt=0.2s
+step  31  total=1.4714  psa=2.824  baa=0.102  cbi=0.042  rec=0.0000  wp=0.000  dt=0.2s
+step  32  total=0.9923  psa=1.862  baa=0.104  cbi=0.046  rec=0.0000  wp=0.000  dt=0.2s
+step  33  total=0.8586  psa=1.586  baa=0.105  cbi=0.064  rec=0.0000  wp=0.000  dt=0.3s
+step  34  total=1.3728  psa=2.587  baa=0.102  cbi=0.141  rec=0.0000  wp=0.000  dt=0.3s
+step  35  total=1.4589  psa=2.792  baa=0.109  cbi=0.040  rec=0.0000  wp=0.000  dt=0.2s
+step  36  total=0.9992  psa=1.877  baa=0.102  cbi=0.050  rec=0.0000  wp=0.000  dt=0.2s
+step  37  total=0.9314  psa=1.744  baa=0.102  cbi=0.042  rec=0.0000  wp=0.000  dt=0.2s
+step  38  total=1.3024  psa=2.479  baa=0.102  cbi=0.059  rec=0.0000  wp=0.000  dt=0.2s
+step  39  total=1.4835  psa=2.842  baa=0.109  cbi=0.040  rec=0.0000  wp=0.000  dt=0.2s
+step  40  total=0.9914  psa=1.861  baa=0.102  cbi=0.049  rec=0.0000  wp=0.000  dt=0.2s
+step  41  total=0.9060  psa=1.693  baa=0.101  cbi=0.045  rec=0.0000  wp=0.000  dt=0.2s
+step  42  total=1.2784  psa=2.432  baa=0.102  cbi=0.058  rec=0.0000  wp=0.000  dt=0.2s
+step  43  total=1.3649  psa=2.609  baa=0.104  cbi=0.041  rec=0.0000  wp=0.000  dt=0.2s
+step  44  total=0.9372  psa=1.754  baa=0.102  cbi=0.046  rec=0.0000  wp=0.000  dt=0.2s
+step  45  total=0.8032  psa=1.485  baa=0.101  cbi=0.051  rec=0.0000  wp=0.000  dt=0.2s
+step  46  total=1.2893  psa=2.458  baa=0.101  cbi=0.049  rec=0.0000  wp=0.000  dt=0.2s
+step  47  total=1.4182  psa=2.716  baa=0.103  cbi=0.043  rec=0.0000  wp=0.000  dt=0.2s
+step  48  total=0.9012  psa=1.685  baa=0.101  cbi=0.040  rec=0.0000  wp=0.000  dt=0.2s
+step  49  total=0.7550  psa=1.390  baa=0.101  cbi=0.048  rec=0.0000  wp=0.000  dt=0.2s
+step  50  total=1.2278  psa=2.336  baa=0.102  cbi=0.044  rec=0.0000  wp=0.000  dt=0.2s
+step  51  total=1.3429  psa=2.567  baa=0.102  cbi=0.043  rec=0.0000  wp=0.000  dt=0.2s
+step  52  total=0.8946  psa=1.672  baa=0.101  cbi=0.042  rec=0.0000  wp=0.000  dt=0.2s
+step  53  total=0.6585  psa=1.199  baa=0.101  cbi=0.043  rec=0.0000  wp=0.000  dt=0.2s
+step  54  total=1.1874  psa=2.253  baa=0.101  cbi=0.052  rec=0.0000  wp=0.000  dt=0.2s
+step  55  total=1.2604  psa=2.402  baa=0.102  cbi=0.041  rec=0.0000  wp=0.000  dt=0.2s
+step  56  total=0.8145  psa=1.511  baa=0.100  cbi=0.043  rec=0.0000  wp=0.000  dt=0.2s
+step  57  total=0.6268  psa=1.136  baa=0.101  cbi=0.043  rec=0.0000  wp=0.000  dt=0.2s
+step  58  total=1.0571  psa=1.992  baa=0.101  cbi=0.054  rec=0.0000  wp=0.000  dt=0.2s
+step  59  total=1.1866  psa=2.256  baa=0.101  cbi=0.040  rec=0.0000  wp=0.000  dt=0.2s
+[probe post-train] {'cross_attn.lift_time[0].w_abs_mean': 0.08892306685447693, 'topic_enc.down_project[0].w_abs_mean': 0.01285192184150219, 'bundle_time._axis_raw_abs_mean': 0.056972745805978775}
+[train] elapsed 15.7s  avg/step=0.26s
+[save] wrote ckpt/v4_trained.pt
