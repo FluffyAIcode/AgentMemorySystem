@@ -103,8 +103,23 @@ def loss_prefix_semantic_anchor(model, be: BatchEncoded,
 
 # ─── 2.2 bundle_axis_alignment ──────────────────────────────────────────
 
+_CONTENT_TOKEN_ID_MIN = 1000  # skip punctuation and common BPE merges below this
+
+
 def _jaccard(a: List[int], b: List[int]) -> float:
-    sa, sb = set(a), set(b)
+    """Jaccard restricted to content-ish token ids.
+
+    Dropping token ids < _CONTENT_TOKEN_ID_MIN cuts punctuation and the
+    most-common-BPE-merges that every sentence shares (e.g. "I", "the",
+    "my"). Heuristic, but effective: for Qwen2.5 and GPT-2 vocabularies,
+    the first ~1k ids are dominated by single chars and very-common merges.
+    Without this, "positive pair" by Jaccard is driven by shared stopwords
+    and the triplet loss collapses every topic_base onto the stopword
+    direction.
+    """
+    def _content(xs: List[int]) -> set:
+        return {int(t) for t in xs if int(t) >= _CONTENT_TOKEN_ID_MIN}
+    sa, sb = _content(a), _content(b)
     if not sa and not sb:
         return 1.0
     return len(sa & sb) / max(1, len(sa | sb))
@@ -131,7 +146,7 @@ def loss_bundle_axis_alignment(model, be: BatchEncoded) -> Tensor:
         # Maximize correlation → minimize (1 - pearson).
         parts.append(1.0 - pearson)
 
-    # ─── Topic sub-term: cosine(topic_base) should align with Jaccard ─────
+    # ─── Topic sub-term: content-word triplet + diversity regularizer ────
     if N >= 3:
         jac = torch.zeros(N, N, device=dev)
         for i in range(N):
@@ -139,18 +154,26 @@ def loss_bundle_axis_alignment(model, be: BatchEncoded) -> Tensor:
                 if i == j: continue
                 jac[i, j] = _jaccard(be.content_token_ids[i], be.content_token_ids[j])
         cos = be.topic_base @ be.topic_base.T                   # (N, N); base is unit-norm
-        # Normalize pair order: positive pair = argmax per row (ignoring self),
-        # negative pair = argmin per row. Triplet margin hinge.
-        # Mask self-similarity on diag
         mask_self = torch.eye(N, device=dev, dtype=torch.bool)
         jac_masked = jac.clone(); jac_masked[mask_self] = -1.0
-        pos_j = jac_masked.argmax(dim=1)                        # (N,)
-        neg_j = jac_masked.argmin(dim=1)                        # (N,)
+        pos_j = jac_masked.argmax(dim=1)
+        neg_j = jac_masked.argmin(dim=1)
         i_idx = torch.arange(N, device=dev)
         pos_cos = cos[i_idx, pos_j]; neg_cos = cos[i_idx, neg_j]
-        triplet_margin = 0.1
+        triplet_margin = 0.2
         hinge_topic = F.relu(neg_cos - pos_cos + triplet_margin).mean()
         parts.append(hinge_topic)
+
+        # Diversity regularizer: every off-diagonal pair should have cos ≤
+        # diversity_ceiling. Prevents the whole topic_base batch from
+        # collapsing onto a single direction even when the triplet loss is
+        # nominally satisfied.
+        diversity_ceiling = 0.7
+        off_diag = cos.masked_fill(mask_self, 0.0)
+        over = F.relu(off_diag - diversity_ceiling)
+        # Normalize by number of off-diag pairs
+        n_pairs = max(1, N * (N - 1))
+        parts.append(over.sum() / n_pairs)
 
     # ─── Context sub-term ─────────────────────────────────────────────────
     # Within a training batch "session" = same batch. Without cross-session
