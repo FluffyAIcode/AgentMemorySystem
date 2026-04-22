@@ -1,9 +1,5 @@
-"""BundleQueryHeads — three per-bundle projection heads mapping the
-decoder's hidden state into each bundle's query space.
-
-One head per bundle. Each head outputs a query vector of the *same dim as
-that bundle's fiber space*, so the bundle's keys/values (which are fibers
-or fiber-derived) can be attended over directly.
+"""BundleQueryHeads — three per-bundle projections of the decoder's hidden
+state into each bundle's fiber space.
 """
 from __future__ import annotations
 from typing import Dict
@@ -16,21 +12,21 @@ from ams_v4.core.types import Tensor
 
 
 class BundleQueryHeads(nn.Module):
-    """Three linear heads: hidden_state → (q_time, q_topic, q_ctx)."""
+    """Three linear heads: hidden_state → {time, topic, ctx} queries."""
 
     def __init__(self, cfg: Cfg4):
         super().__init__()
         self.cfg = cfg
-        # v4.4 implementation:
-        #   self.q_time  = nn.Linear(cfg.d_LLM, cfg.d_F_time)
-        #   self.q_topic = nn.Linear(cfg.d_LLM, cfg.d_F_topic)
-        #   self.q_ctx   = nn.Linear(cfg.d_LLM, cfg.d_F_ctx)
-        #   Plus LayerNorm on input and per-head output.
-        raise NotImplementedError("v4-skel: BundleQueryHeads.__init__ — lands in v4.4")
+        self.ln = nn.LayerNorm(cfg.d_LLM)
+        self.q_time = nn.Linear(cfg.d_LLM, cfg.d_F_time)
+        self.q_topic = nn.Linear(cfg.d_LLM, cfg.d_F_topic)
+        self.q_ctx = nn.Linear(cfg.d_LLM, cfg.d_F_ctx)
 
     def forward(self, hidden_state: Tensor) -> Dict[str, Tensor]:
-        """hidden_state: (B, d_LLM) → {"time": (B, d_F_time),
-                                       "topic": (B, d_F_topic),
-                                       "ctx":   (B, d_F_ctx)}.
-        """
-        raise NotImplementedError("v4-skel: BundleQueryHeads.forward — lands in v4.4")
+        assert hidden_state.dim() == 2 and hidden_state.shape[-1] == self.cfg.d_LLM
+        h = self.ln(hidden_state)
+        return {
+            "time":  self.q_time(h),
+            "topic": self.q_topic(h),
+            "ctx":   self.q_ctx(h),
+        }

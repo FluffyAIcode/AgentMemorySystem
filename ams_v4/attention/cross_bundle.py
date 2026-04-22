@@ -1,21 +1,6 @@
-"""CrossBundleAttention — the attention mechanism that forms the context window.
-
-Pulls three per-bundle attention results and combines them into a prefix
-that is delivered into the backbone's forward pass. This is the §1.5
-component of the abstract architecture.
-
-Contract (§6 invariant 6): output shape = (effective_prefix_slots, d_LLM),
-where effective_prefix_slots = Cfg4.L_mem, split as
-  Cfg4.prefix_slots_time + Cfg4.prefix_slots_topic + Cfg4.prefix_slots_ctx
-  == Cfg4.L_mem.
-
-Attention strategy: one attention *per bundle*, not a single mixed-bundle
-attention. This keeps the per-bundle signal clean (topic attention does not
-get distracted by temporal fibers, etc.) and lets the bundles specialize.
-The combination is concatenative across slots, not additive in a single slot.
-"""
+"""CrossBundleAttention — three per-bundle attentions + slot-concat to (L_mem, d_LLM)."""
 from __future__ import annotations
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional
 
 import torch
 import torch.nn as nn
@@ -27,49 +12,87 @@ from ams_v4.core.types import Tensor
 
 
 class CrossBundleAttention(nn.Module):
-    """Three per-bundle multi-head attentions + a concatenative output projection."""
+    """Three per-bundle multi-head attentions + per-slot lifts to d_LLM."""
 
     def __init__(self, cfg: Cfg4):
         super().__init__()
         self.cfg = cfg
-        # v4.4 implementation:
-        #   self.query_heads = BundleQueryHeads(cfg)
-        #   self.attn_time  = nn.MultiheadAttention(cfg.d_F_time,  cfg.n_heads_time,  batch_first=True)
-        #   self.attn_topic = nn.MultiheadAttention(cfg.d_F_topic, cfg.n_heads_topic, batch_first=True)
-        #   self.attn_ctx   = nn.MultiheadAttention(cfg.d_F_ctx,   cfg.n_heads_ctx,   batch_first=True)
-        #
-        #   # Per-slot lift heads: each slot is its own learned linear lift from
-        #   # the bundle's fiber dim to d_LLM. (prefix_slots_time × d_F_time → d_LLM per slot.)
-        #   self.lift_time  = nn.ModuleList([nn.Linear(cfg.d_F_time,  cfg.d_LLM)
-        #                                    for _ in range(cfg.prefix_slots_time)])
-        #   self.lift_topic = nn.ModuleList([nn.Linear(cfg.d_F_topic, cfg.d_LLM)
-        #                                    for _ in range(cfg.prefix_slots_topic)])
-        #   self.lift_ctx   = nn.ModuleList([nn.Linear(cfg.d_F_ctx,   cfg.d_LLM)
-        #                                    for _ in range(cfg.prefix_slots_ctx)])
-        #
-        #   # LayerNorm on the final prefix for stability when injected into the backbone.
-        #   self.prefix_ln = nn.LayerNorm(cfg.d_LLM)
-        raise NotImplementedError("v4-skel: CrossBundleAttention.__init__ — lands in v4.4")
+        self.query_heads = BundleQueryHeads(cfg)
+        self.attn_time = nn.MultiheadAttention(
+            cfg.d_F_time, cfg.n_heads_time, batch_first=True,
+        )
+        self.attn_topic = nn.MultiheadAttention(
+            cfg.d_F_topic, cfg.n_heads_topic, batch_first=True,
+        )
+        self.attn_ctx = nn.MultiheadAttention(
+            cfg.d_F_ctx, cfg.n_heads_ctx, batch_first=True,
+        )
+        self.lift_time = nn.ModuleList([
+            nn.Linear(cfg.d_F_time, cfg.d_LLM) for _ in range(cfg.prefix_slots_time)
+        ])
+        self.lift_topic = nn.ModuleList([
+            nn.Linear(cfg.d_F_topic, cfg.d_LLM) for _ in range(cfg.prefix_slots_topic)
+        ])
+        self.lift_ctx = nn.ModuleList([
+            nn.Linear(cfg.d_F_ctx, cfg.d_LLM) for _ in range(cfg.prefix_slots_ctx)
+        ])
+        self.prefix_ln = nn.LayerNorm(cfg.d_LLM)
 
     def forward(self, hidden_state: Tensor, entries: List[MemEntry],
                 mem_mask: Optional[Tensor] = None) -> Tensor:
-        """Produce a prefix tensor.
-
-        hidden_state:  (B, d_LLM)      — current query hidden state
-        entries:       list of MemEntry — memories to attend over (length M)
-        mem_mask:      (B, M) bool      — optional key-padding mask
+        """hidden_state: (B, d_LLM); entries: list of MemEntry (length M);
+        mem_mask:   (B, M) bool (True = ignore this mem) or None.
 
         Returns: prefix of shape (B, L_mem, d_LLM).
-
-        Pipeline:
-          1. q = BundleQueryHeads(hidden_state) → three per-bundle queries.
-          2. For each bundle:
-             a. Stack the bundle's fibers across entries → K = V = (B, M, d_F_bundle)
-             b. out_bundle = attn(q_bundle, K, V)     (B, d_F_bundle)
-          3. For each bundle, run out_bundle through its prefix_slots_bundle
-             lift heads → (B, prefix_slots_bundle, d_LLM).
-          4. Concatenate across bundles along the slot dim (prefix_slots_time
-             + prefix_slots_topic + prefix_slots_ctx == L_mem).
-          5. prefix_ln(result).
         """
-        raise NotImplementedError("v4-skel: CrossBundleAttention.forward — lands in v4.4")
+        assert hidden_state.dim() == 2
+        assert hidden_state.shape[-1] == self.cfg.d_LLM
+        assert len(entries) >= 1, "CrossBundleAttention requires ≥ 1 memory entry"
+        B = hidden_state.shape[0]
+        M = len(entries)
+        dev = hidden_state.device
+        dtype = hidden_state.dtype
+
+        q = self.query_heads(hidden_state)  # three (B, d_F_*) queries
+
+        def _stack_fibers(attr: str, d_F: int) -> Tensor:
+            stacked = torch.stack([getattr(e, attr) for e in entries], dim=0)  # (M, d_F_*)
+            stacked = stacked.to(device=dev, dtype=dtype)
+            return stacked.unsqueeze(0).expand(B, M, d_F)
+
+        K_time = V_time = _stack_fibers("time_fiber", self.cfg.d_F_time)
+        K_topic = V_topic = _stack_fibers("topic_fiber", self.cfg.d_F_topic)
+        K_ctx = V_ctx = _stack_fibers("ctx_fiber", self.cfg.d_F_ctx)
+
+        # If mem_mask provided, it is (B, M) with True = pad. Otherwise None.
+        out_time, _ = self.attn_time(
+            q["time"].unsqueeze(1), K_time, V_time, key_padding_mask=mem_mask,
+        )
+        out_topic, _ = self.attn_topic(
+            q["topic"].unsqueeze(1), K_topic, V_topic, key_padding_mask=mem_mask,
+        )
+        out_ctx, _ = self.attn_ctx(
+            q["ctx"].unsqueeze(1), K_ctx, V_ctx, key_padding_mask=mem_mask,
+        )
+
+        out_time = out_time.squeeze(1)    # (B, d_F_time)
+        out_topic = out_topic.squeeze(1)  # (B, d_F_topic)
+        out_ctx = out_ctx.squeeze(1)      # (B, d_F_ctx)
+
+        # Lift to (B, prefix_slots_*, d_LLM) via per-slot Linears
+        slots_time = torch.stack(
+            [lh(out_time) for lh in self.lift_time], dim=1,
+        )
+        slots_topic = torch.stack(
+            [lh(out_topic) for lh in self.lift_topic], dim=1,
+        )
+        slots_ctx = torch.stack(
+            [lh(out_ctx) for lh in self.lift_ctx], dim=1,
+        )
+
+        prefix = torch.cat([slots_time, slots_topic, slots_ctx], dim=1)
+        # Post-attention layer norm for decoder stability
+        prefix = self.prefix_ln(prefix)
+        assert prefix.shape == (B, self.cfg.L_mem, self.cfg.d_LLM), \
+            f"prefix shape invariant: got {tuple(prefix.shape)}"
+        return prefix

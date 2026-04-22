@@ -87,16 +87,12 @@ def test_remaining_stubs_raise_not_implemented():
     from ams_v4 import Cfg4
     cfg = Cfg4()
 
-    from ams_v4.attention.query_heads import BundleQueryHeads
-    from ams_v4.attention.cross_bundle import CrossBundleAttention
     from ams_v4.projection.bridge import EmbBridge4
     from ams_v4.bridge.memllm import MemLLM4
 
     stubs = [
-        ("BundleQueryHeads.__init__",     lambda: BundleQueryHeads(cfg)),
-        ("CrossBundleAttention.__init__", lambda: CrossBundleAttention(cfg)),
-        ("EmbBridge4.__init__",           lambda: EmbBridge4(cfg)),
-        ("MemLLM4.__init__",              lambda: MemLLM4(cfg)),
+        ("EmbBridge4.__init__",  lambda: EmbBridge4(cfg)),
+        ("MemLLM4.__init__",     lambda: MemLLM4(cfg)),
     ]
     for name, thunk in stubs:
         try:
