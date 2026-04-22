@@ -149,14 +149,22 @@ def run_mode_D(model, facts: List[Turn], query: Turn, mt: int) -> TurnMetrics:
 
 
 def _retrieve_flat_cos(model, query_text: str, topk: int) -> List[int]:
-    """Flat-scan cosine retrieval over stored semantic_emb. Returns mids sorted by score desc."""
+    """Flat-scan cosine retrieval over stored semantic_emb. Returns mids sorted by score desc.
+
+    Computes the query embedding the same way MemLLM.write() does:
+        o = fwd(ids, mask) -> list of per-layer hidden states
+        hs_pooled = layer_pool(hs_list)                       [B, T, d_LLM]
+        sem_q = _compute_content_semantic_emb(hs_pooled, ids, mask)   [B, d_LLM]
+    so the query and stored embeddings live in the same space.
+    """
     dev = next(model.parameters()).device
     tk = model.tok(query_text, return_tensors="pt")
     ids = tk["input_ids"].to(dev); mask = tk["attention_mask"].to(dev)
     with torch.no_grad():
         o = model.fwd(ids, mask)
-        pooled = (o["hs"][0] * mask[0].unsqueeze(-1).float()).sum(0) / mask[0].sum().clamp(min=1)
-        q = pooled
+        hs_pooled = model.layer_pool(o["hs"])
+        sem_q = model._compute_content_semantic_emb(hs_pooled, ids, mask)  # [1, d_LLM]
+    q = sem_q[0].float()
     store = model.amm.tree.store
     scored = []
     for mid, mem in store.items():
@@ -289,17 +297,25 @@ def _build_model(seed: int = 42) -> Tuple[sb.MemLLM, torch.device]:
     return m, dev
 
 def _seed_memory(model, facts: List[Turn]) -> float:
-    """Write facts to AMS memory. Returns total write_ms."""
+    """Write facts to AMS memory. Returns total write_ms.
+
+    Uses training_mode=True so the write-gate never silently drops a fact
+    (default threshold can block routine-surprise inputs).  This is a
+    measurement setup, not a training claim.
+    """
     dev = next(model.parameters()).device
     t0 = _timer(dev)
     for f in facts:
-        model.write(f.text, training_mode=False)
+        model.write(f.text, training_mode=True)
     try:
         model.amm.maybe_recluster(force=True)
     except Exception as e:
         print(f"  [seed] maybe_recluster skipped: {type(e).__name__}: {e}")
     model._refresh_rare_keyword_indices()
     _sync(dev)
+    stored = len(model.amm.tree.store)
+    if stored != len(facts):
+        print(f"  [seed] WARN: stored={stored} != facts={len(facts)}")
     return (time.time() - t0) * 1000
 
 def run_session_for_mode(model, session: List[Turn], mode: str, mt: int) -> Dict[str, Any]:
