@@ -17,12 +17,17 @@ from ams_v4.core.types import Tensor
 
 
 class EmbBridge4(nn.Module):
-    """Prefix-prepend bridge."""
+    """Prefix-prepend bridge.
+
+    CrossBundleAttention already applies a LayerNorm to its output, so we do
+    NOT apply a second LayerNorm here. Keeping the module minimal also avoids
+    an fp32-vs-bf16 dtype mismatch on GPU (our v4 modules are fp32 by default,
+    the Qwen backbone is bf16).
+    """
 
     def __init__(self, cfg: Cfg4):
         super().__init__()
         self.cfg = cfg
-        self.prefix_post_ln = nn.LayerNorm(cfg.d_LLM)
 
     def build_inputs(
         self, prefix: Tensor, ids: Tensor, mask: Tensor, wte: nn.Module,
@@ -46,9 +51,8 @@ class EmbBridge4(nn.Module):
         assert ids.shape[0] == prefix.shape[0] == mask.shape[0]
 
         tok_emb = wte(ids)                                # (B, T, d_LLM)
-        # Cast prefix to backbone dtype for concat
-        prefix_n = self.prefix_post_ln(prefix.to(tok_emb.dtype))
-        input_embeds = torch.cat([prefix_n, tok_emb], dim=1)
+        # Cast prefix to backbone dtype for concat. No extra LN — see class docstring.
+        input_embeds = torch.cat([prefix.to(tok_emb.dtype), tok_emb], dim=1)
 
         B = mask.shape[0]
         prefix_mask = torch.ones(

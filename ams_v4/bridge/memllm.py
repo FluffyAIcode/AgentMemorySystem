@@ -289,9 +289,12 @@ class MemLLM4(nn.Module):
         ids, mask = self._tokenize(prompt)
         ctx = self.prepare_decode_context(ids, mask)
 
-        # Prefix lives in d_LLM; cast to backbone dtype and build mask
+        # Prefix lives in d_LLM; cast to backbone dtype. cross_attn already
+        # applied a LayerNorm, so the bridge's redundant LN is skipped here —
+        # and doing so also avoids a dtype mismatch (bridge LN params are fp32,
+        # backbone is bf16 on GPU).
         backbone_dtype = next(self.backbone.model.parameters()).dtype
-        prefix_embeds = self.bridge.prefix_post_ln(ctx.prefix.to(backbone_dtype))
+        prefix_embeds = ctx.prefix.to(backbone_dtype)
         prefix_mask = torch.ones(
             ids.shape[0], self.cfg.L_mem, dtype=mask.dtype, device=mask.device,
         )
