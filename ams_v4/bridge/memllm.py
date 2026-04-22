@@ -76,6 +76,50 @@ class MemLLM4(nn.Module):
         # Cache normalized word-token embeddings for TopicEncoder
         self._wte_normed_cache = self._build_wte_normed()
 
+    def load_trained_weights(self, path: str,
+                             expected_provenance: Optional[str] = None) -> dict:
+        """Load trainable-param weights from a v4 Trainer4 checkpoint.
+
+        Returns a stats dict: {"loaded": int, "skipped": int, "shape_errs": int,
+        "provenance": str, "path": str}.
+
+        Raises if `expected_provenance` is given and doesn't match the
+        checkpoint's provenance string.
+        """
+        import os
+        assert self.backbone._loaded, "load_trained_weights requires backbone loaded first"
+        assert os.path.exists(path), f"checkpoint not found: {path}"
+        blob = torch.load(path, map_location="cpu", weights_only=False)
+        assert "state_dict" in blob, "checkpoint missing state_dict"
+        prov = blob.get("provenance", "?")
+        if expected_provenance and prov != expected_provenance:
+            raise AssertionError(
+                f"provenance mismatch: expected {expected_provenance!r}, "
+                f"got {prov!r}"
+            )
+        sd = blob["state_dict"]
+        own_params = dict(self.named_parameters())
+        loaded = 0; skipped = 0; shape_errs = 0
+        for name, weight in sd.items():
+            if name not in own_params:
+                skipped += 1
+                continue
+            p = own_params[name]
+            if tuple(p.shape) != tuple(weight.shape):
+                shape_errs += 1
+                continue
+            with torch.no_grad():
+                p.data.copy_(weight.to(device=p.device, dtype=p.dtype))
+            loaded += 1
+        print(
+            f"  [AMS_V4_TRAINED] loaded={loaded} skipped={skipped} "
+            f"shape_errs={shape_errs}  path={path}  provenance={prov}"
+        )
+        return {
+            "loaded": loaded, "skipped": skipped, "shape_errs": shape_errs,
+            "provenance": prov, "path": path,
+        }
+
     def _build_wte_normed(self) -> Tensor:
         """L2-normalized wte weight; used as the content-token embedding table."""
         wte = self.backbone.wte
