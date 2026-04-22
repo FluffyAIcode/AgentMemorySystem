@@ -80,19 +80,23 @@ def test_cfg4_invariant_fiber_divisibility():
 
 
 def test_remaining_stubs_raise_not_implemented():
-    """Components not yet implemented must still raise NotImplementedError
-    with the 'v4-skel:' marker. Removed entries from this list as each PR
-    (v4.2, v4.3, v4.4, v4.5) implements its components.
+    """Components not yet implemented must still raise NotImplementedError.
+
+    All v4.1 / v4.2 / v4.3 components are implemented. v4.4 + v4.5 stubs remain.
     """
     from ams_v4 import Cfg4
     cfg = Cfg4()
 
-    # v4.3 — kakeya set/registry (still stubs)
-    from ams_v4.kakeya.set import KakeyaSet
-    from ams_v4.kakeya.registry import KakeyaRegistry
+    from ams_v4.attention.query_heads import BundleQueryHeads
+    from ams_v4.attention.cross_bundle import CrossBundleAttention
+    from ams_v4.projection.bridge import EmbBridge4
+    from ams_v4.bridge.memllm import MemLLM4
 
     stubs = [
-        ("KakeyaRegistry.define_sets", lambda: KakeyaRegistry(cfg).define_sets([])),
+        ("BundleQueryHeads.__init__",     lambda: BundleQueryHeads(cfg)),
+        ("CrossBundleAttention.__init__", lambda: CrossBundleAttention(cfg)),
+        ("EmbBridge4.__init__",           lambda: EmbBridge4(cfg)),
+        ("MemLLM4.__init__",              lambda: MemLLM4(cfg)),
     ]
     for name, thunk in stubs:
         try:

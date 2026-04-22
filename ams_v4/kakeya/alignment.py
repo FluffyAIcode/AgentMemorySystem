@@ -1,10 +1,6 @@
 """Kakeya ↔ bundle-axis alignment helpers.
 
-The §1.3 contract: each KakeyaSet.t_dir must equal the push-forward of its
-owner bundle's canonical axis into the PCA subspace, up to alignment_tol.
-
-This file holds the math — separated from KakeyaSet / KakeyaRegistry so the
-algebra is reviewable independent of dataclass / indexing plumbing.
+All pure-function math; no state. KakeyaSet and KakeyaRegistry call these.
 """
 from __future__ import annotations
 from typing import Tuple
@@ -15,54 +11,53 @@ from ams_v4.core.types import Tensor
 
 
 def pushforward(axis_in_base: Tensor, base_to_field: Tensor) -> Tensor:
-    """Pushforward a bundle base-space axis into the compressed-field space.
+    """Pushforward a bundle base-space axis into field space.
 
-    axis_in_base:   (d_base,) unit vector in the bundle's base space.
-    base_to_field:  (d_base, d_field) a learned or fixed linear map from the
-                    bundle base space to the field space the Kakeya set
-                    operates on (e.g. semantic_emb lives in d_LLM = 1536;
-                    d_base for TemporalBundle is 8, so base_to_field is
-                    (8, 1536)).
-
-    Returns: (d_field,) the image, *not* yet normalized (normalize at the
-    caller if you need ||·||=1).
-
-    In v4.3 this is the rectangular matmul `axis_in_base @ base_to_field`.
+    axis_in_base:   (d_base,)
+    base_to_field:  (d_base, d_field)
+    Returns:        (d_field,) — not normalized.
     """
-    raise NotImplementedError("v4-skel: alignment.pushforward — lands in v4.3")
+    assert axis_in_base.dim() == 1
+    assert base_to_field.dim() == 2
+    assert axis_in_base.shape[0] == base_to_field.shape[0]
+    return axis_in_base @ base_to_field
 
 
 def project_into_pca(direction_in_field: Tensor, basis: Tensor) -> Tensor:
-    """Project a direction in field space onto the PCA subspace.
+    """Project a field-space direction onto the PCA subspace.
 
     direction_in_field: (d_field,)
-    basis: (d_eff, d_field)  (rows are the PCA basis vectors)
-
-    Returns: (d_eff,) coefficient vector; NOT normalized.
+    basis:              (d_eff, d_field)  (rows are PCA basis vectors)
+    Returns:            (d_eff,)
     """
-    raise NotImplementedError("v4-skel: alignment.project_into_pca — lands in v4.3")
+    assert direction_in_field.dim() == 1
+    assert basis.dim() == 2
+    assert direction_in_field.shape[0] == basis.shape[1]
+    return basis @ direction_in_field
 
 
 def alignment_error(t_dir: Tensor, target: Tensor) -> float:
-    """Return ||t_dir - target / ||target||||₂.
+    """Return ||t_dir - normalize(target)||₂.
 
-    Both inputs live in the PCA subspace (dim d_eff). Target is normalized
-    before comparison.
+    Both are (d_eff,). target is normalized before comparison.
     """
-    raise NotImplementedError("v4-skel: alignment.alignment_error — lands in v4.3")
+    assert t_dir.dim() == 1 and target.dim() == 1
+    assert t_dir.shape == target.shape
+    target_n = target / target.norm().clamp(min=1e-8)
+    return float((t_dir - target_n).norm().item())
 
 
-def solve_aligned_t_dir(coeffs: Tensor, target_direction: Tensor,
-                        tol: float) -> Tuple[Tensor, float]:
-    """Pick t_dir ∈ the unit sphere in R^{d_eff} to be as close as possible
-    to target_direction while still being a direction that concentrates the
-    coeffs (has appreciable projection magnitude).
+def solve_aligned_t_dir(target_direction: Tensor, tol: float = 1e-3) -> Tuple[Tensor, float]:
+    """Pick t_dir ∈ unit sphere in R^{d_eff} to minimize distance to target.
 
-    In the simplest v4.3 implementation this is just `normalize(target)`
-    (constrained to the unit sphere; minimizes the alignment error by
-    construction). Future work: balance alignment against "captures most of
-    the variance of coeffs".
-
-    Returns (t_dir, alignment_error).
+    v4.3: closed form — just normalize(target). Returns (t_dir, err).
+    err is ||t_dir - normalize(target)|| = 0 by construction, unless target is
+    near-zero (in which case we return an arbitrary unit vector with error 1).
     """
-    raise NotImplementedError("v4-skel: alignment.solve_aligned_t_dir — lands in v4.3")
+    norm = target_direction.norm()
+    if norm.item() < 1e-8:
+        fallback = torch.zeros_like(target_direction)
+        fallback[0] = 1.0
+        return fallback, 1.0
+    t_dir = target_direction / norm
+    return t_dir, 0.0
