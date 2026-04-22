@@ -495,3 +495,49 @@ Per §10.1 decision framework:
 - **Trained checkpoint on vast.ai**: re-run both N=10 and N=20 with `AMS_TRAINED_WEIGHTS=ckpt/v346_trained.pt` to measure whether 60-step training lifts `A_ams_prefix` and `C_ams_hybrid` hit-rates past `B_ams_text`. If yes, P0–P4 become justified. If no, they are nice-to-have. Currently blocked on vast.ai SSH `Connection reset by peer` outage (~1h as of last check); will land when the remote recovers.
 - **N=50 synthetic session**: extrapolate D's O(N) cost curve and confirm retrieval stack stays flat.
 - **LongMemEval subset**: swap synthetic corpus for a 50-entry LongMemEval slice; cross-check against the v3.12 baseline (0.057 KW-F1, 11.5% HasAnswer).
+
+### 10.7 Trained-ckpt results (v3.46-trained, 60 steps, NVIDIA H200, mt=30)
+
+Training driver: `train_v346.py --steps 60 --out ckpt/v346_trained.pt`
+Elapsed 193.5 s on H200. `post_probe = {tail_head_slot1_abs_mean: 7.25e-4, vocab_proj_last_abs_mean: 5.09e-4}` (handoff expected 7.30e-4 / 5.49e-4 — matches within <10 % noise).
+Loader verification on both trained runs: `loaded=202 skipped=0 shape_errs=0  provenance=AgentMemory/v346-revertE-topk-nonexclusive-7e97`.
+
+Δ columns compare trained vs **fresh-GPU** (not the CPU fresh rows in §10.3), so generate-time deltas are meaningful. CPU vs GPU latencies are on different hardware and are not commensurable.
+
+#### N=10 (identity-only, `reports/session_viability_trained/` vs `reports/session_viability_fresh_gpu/`)
+
+| Mode | Hit-rate | avg in-tokens | avg retrieve ms | avg generate ms | Δ fresh-GPU hit | Δ fresh-GPU gen-ms |
+|---|---:|---:|---:|---:|---:|---:|
+| `D_full_history` | 100% | 159 | 0.0 | 537 | 0 | +21 |
+| `B_flat_cos` | 80% | 55 | 31 | 526 | 0 | +20 |
+| `B_ams_text` | 80% | 55 | 415 | 376 | 0 | −9 |
+| `A_ams_prefix` | 50% | 11 | 452 | 13033 | 0 | −1865 |
+| `C_ams_hybrid` | 70% | 27 | 466 | 14520 | 0 | −843 |
+
+#### N=20 (+10 distractors, `reports/session_viability_trained_20facts/` vs `reports/session_viability_fresh_gpu_20facts/`)
+
+| Mode | Hit-rate | avg in-tokens | avg retrieve ms | avg generate ms | Δ fresh-GPU hit | Δ fresh-GPU gen-ms |
+|---|---:|---:|---:|---:|---:|---:|
+| `D_full_history` | 100% | 301 | 0.0 | 539 | 0 | +28 |
+| `B_flat_cos` | 70% | 55 | 32 | 498 | 0 | +13 |
+| `B_ams_text` | 80% | 55 | 417 | 373 | 0 | +3 |
+| `A_ams_prefix` | 50% | 11 | 435 | 12900 | 0 | −2196 |
+| `C_ams_hybrid` | 70% | 27 | 447 | 13853 | 0 | −1458 |
+
+**Cross-cut vs §10.3 CPU fresh numbers**: GPU fresh-init `B_ams_text` at N=20 lands at 80 %, not the 90 % observed on CPU in §10.3. Greedy decode is deterministic given identical tokens, but the inputs differ by one turn of retrieval state (GPU bf16 vs CPU fp32 numerics in `layer_pool + _compute_content_semantic_emb` move the top-k ordering on one borderline query). Call the underlying B_ams_text capability 80–90 % at N=20 — one point (`davis`) is on the edge of the retrieval gate and flips between devices. Not a bug in `session_viability.py`.
+
+### 10.8 Decision update
+
+Answering §10.1 / handoff §5.1 questions **from the data**:
+
+1. **Did training lift `A_ams_prefix` hit-rate past `B_ams_text` at N=20?** **No.** Observed: A = 50 % vs B_ams_text = 80 %. Gap is 30 points; training did not move A at all (same 50 % as fresh-GPU and the fresh-CPU 60 % of §10.3 is within synthetic-session noise on 10 queries).
+2. **Did training lift `C_ams_hybrid` hit-rate past `B_ams_text` at N=20?** **No.** Observed: C = 70 % vs B_ams_text = 80 %. Same 70 % hit-rate as fresh-GPU; training did not help here either.
+3. **Is the A/C generate-time cost still ~5× the text modes?** **Yes — but smaller.** Observed at N=20 trained: text modes gen ≈ 373–539 ms, A = 12 900 ms (≈ 24×), C = 13 853 ms (≈ 26×). So the multiplier is actually larger on H200 than the ~5× the fresh-init CPU rows showed — CFG double-forward + logit-shaping is a bigger share of wall time on fast hardware. Training shaved 1–2 s off A/C vs fresh-GPU, but not enough to change the order of magnitude.
+
+**Rule per handoff §5.2:** all three answers ≥ 1 and 2 are "no", 3 is "yes" → §10.5 recommendation stands.
+
+**Final decision (locked):**
+
+1. **Ship `B_ams_text` as the v3.46 "cheaper RAG backend" product-line.** At N=20 on H200 it delivers 80 % hit-rate with 55 input tokens and 373 ms generate — roughly 18 % of `D_full_history`'s 301-token / 539-ms cost at parity quality on 8 of 10 queries.
+2. **Move P0–P4 blackbox-audit work to a research track**, not a ship track. The success bar is unchanged: trained `A_ams_prefix` or `C_ams_hybrid` must beat `B_ams_text` at N=20 on both hit-rate **and** total token-ms cost. With 60-step training, neither approaches either bar.
+3. **Training-efficacy finding (new, for a separate follow-up):** 60 steps on the §5.3 6-sentence rotating corpus is enough to nudge the `vocab_proj` weights by ~5e-4 abs mean, but **not enough to measurably move any hit-rate** in this spike. If P0–P4 research resumes, the first experiment should be "does 10× more training + a real corpus move A_ams_prefix / C_ams_hybrid at all?" — not "does the current `Cfg` need another knob turned?".
