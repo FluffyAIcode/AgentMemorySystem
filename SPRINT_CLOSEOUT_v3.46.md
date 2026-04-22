@@ -541,3 +541,37 @@ Answering §10.1 / handoff §5.1 questions **from the data**:
 1. **Ship `B_ams_text` as the v3.46 "cheaper RAG backend" product-line.** At N=20 on H200 it delivers 80 % hit-rate with 55 input tokens and 373 ms generate — roughly 18 % of `D_full_history`'s 301-token / 539-ms cost at parity quality on 8 of 10 queries.
 2. **Move P0–P4 blackbox-audit work to a research track**, not a ship track. The success bar is unchanged: trained `A_ams_prefix` or `C_ams_hybrid` must beat `B_ams_text` at N=20 on both hit-rate **and** total token-ms cost. With 60-step training, neither approaches either bar.
 3. **Training-efficacy finding (new, for a separate follow-up):** 60 steps on the §5.3 6-sentence rotating corpus is enough to nudge the `vocab_proj` weights by ~5e-4 abs mean, but **not enough to measurably move any hit-rate** in this spike. If P0–P4 research resumes, the first experiment should be "does 10× more training + a real corpus move A_ams_prefix / C_ams_hybrid at all?" — not "does the current `Cfg` need another knob turned?".
+
+### 10.9 Framing correction (supersedes §10.5 / §10.8 "ship B_ams_text" wording)
+
+§10.5 and §10.8 above were written with the wrong product frame. AMS **is not a RAG system** and **is not a knowledge graph**; reframing it as a "cheaper RAG backend" collapses the project to something it was never trying to be and retires its single differentiator. This subsection corrects the framing; the raw numbers in §10.3 / §10.7 stand unchanged.
+
+#### 10.9.1 What AMS actually is
+
+AMS's core mechanism is a **prefix / hidden-state injection channel**: memories are encoded to continuous vectors (per-slot prefix embeddings, optionally with logit-shaping), and those vectors are delivered into the backbone's forward pass **without going through text re-prompting**. That is exactly what `A_ams_prefix` and `C_ams_hybrid` exercise. The rest of the stack (`DirectionTree`, content gate, rerank, `semantic_emb` storage) exists **to feed** that channel, not to stand in for it.
+
+Two things AMS is **not**, restated so it stays stated:
+- **Not RAG.** RAG = retrieve text chunks, prepend them to the prompt, let the frozen LLM read them. `B_flat_cos` and `B_ams_text` are RAG-shaped modes. Shipping either is shipping a RAG product with AMS-flavored retrieval — it does **not** ship AMS's mechanism.
+- **Not a knowledge graph.** No explicit entities, relations, or symbolic query surface. The `DirectionTree` is a routing structure over continuous embeddings, not an entity-relation graph.
+
+#### 10.9.2 Re-reading §10.7 under the correct frame
+
+Same numbers, different product identity:
+
+- `B_ams_text` at 80–90 % N=20 is **a retrieval-side diagnostic, not a product candidate.** What it tells us: *given the right `source_text` in the prompt, the frozen Qwen2.5-1.5B can already answer 8–9 / 10 of these queries.* That is an upper bound on anything downstream, and it confirms `DirectionTree` + gate + rerank **do find the right memory**. It is not a competitor to A/C because it is not running AMS's mechanism at all — it is running a textual-prompt baseline.
+- `A_ams_prefix` at 50 % N=20, trained or fresh, is **the actual measurement of AMS's mechanism as of v3.46.** 60 steps on the §5.3 corpus does not move it.
+- `C_ams_hybrid` at 70 % N=20 sits between the two. It is still running the prefix channel; the +1 text memory is a crutch the product will remove once A is strong enough.
+- `B_ams_text` − `A_ams_prefix` = 30 points at N=20 is therefore **the prefix-channel deficit to close**, not a gap to sidestep by shipping `B_ams_text`.
+
+#### 10.9.3 Corrected decision
+
+Replacing the §10.5 / §10.8 "ship B_ams_text, move P0–P4 to research track" wording with:
+
+1. **P0–P4 blackbox-audit work remains the ship track** for AMS, because it is the only track that exercises AMS's actual mechanism. The §10.5 wording that moved it to "research track, not a ship track" was a framing error and is retracted here.
+2. **`B_ams_text` is a retained diagnostic**, not a product line. Its role in the benchmark is: (a) upper-bound the information the retrieval side is successfully locating; (b) isolate whether a regression is on the retrieval side or the prefix side. It should **not** be presented externally as an AMS product.
+3. **Success bar restated correctly (not inverted):** AMS is *done* when `A_ams_prefix` or `C_ams_hybrid` matches `D_full_history` at a large fraction of `D`'s token cost — independent of whether any text-injection mode (RAG-shaped) can also hit the same target. Beating `B_ams_text` is a *necessary intermediate milestone*, not the finish line, because `B_ams_text` is a different product category.
+4. **Training-efficacy finding stands (§10.8.3):** 60 steps / §5.3 corpus is too small to conclude anything about the prefix channel's ceiling. The immediate next experiment is scale (10× steps + a real corpus), not a `Cfg` knob.
+
+#### 10.9.4 What the §10.3 "inversion at N=20" meant
+
+The CPU §10.3 row where `B_ams_text` (90 %) beat `B_flat_cos` (70 %) at N=20 was presented as "AMS retrieval wins at realistic N". Re-read under the correct frame: it is evidence that **AMS's routing structure is doing useful work on the retrieval side even before the prefix channel trains up**. That is architecturally encouraging, because it means when P0–P4 closes the prefix gap, the retrieval side is not the bottleneck. It is **not** a reason to ship RAG-shaped `B_ams_text` as the headline artifact.
