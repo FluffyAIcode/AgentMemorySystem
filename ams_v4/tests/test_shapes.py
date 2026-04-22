@@ -87,19 +87,11 @@ def test_remaining_stubs_raise_not_implemented():
     from ams_v4 import Cfg4
     cfg = Cfg4()
 
-    # v4.2 — encoders (still stubs)
-    from ams_v4.bundles.temporal import TimeEncoder
-    from ams_v4.bundles.topic import TopicEncoder
-    from ams_v4.bundles.context import ContextEncoder
-
     # v4.3 — kakeya set/registry (still stubs)
     from ams_v4.kakeya.set import KakeyaSet
     from ams_v4.kakeya.registry import KakeyaRegistry
 
     stubs = [
-        ("TimeEncoder.__init__",    lambda: TimeEncoder(cfg)),
-        ("TopicEncoder.__init__",   lambda: TopicEncoder(cfg)),
-        ("ContextEncoder.__init__", lambda: ContextEncoder(cfg)),
         ("KakeyaRegistry.define_sets", lambda: KakeyaRegistry(cfg).define_sets([])),
     ]
     for name, thunk in stubs:
