@@ -1,0 +1,9 @@
+# Recommended labels for the vLLM issue.
+# vLLM only lets the poster add labels if they're a maintainer; otherwise
+# a maintainer will triage. These are the labels maintainers typically
+# assign to KV-cache-quantisation feature requests on vllm-project/vllm.
+
+feature request
+kv-cache
+quantization
+performance

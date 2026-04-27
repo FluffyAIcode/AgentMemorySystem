@@ -1,0 +1,1 @@
+KakeyaLattice — GPU-native D4/E8 nested-lattice KV-cache compression codec for transformer LLMs. vLLM plugin, streaming, no-calibration. Measured 2.4–3.0x iso-PPL compression on Qwen3 / Gemma-4 / GLM-4 / DeepSeek at H200 bf16.

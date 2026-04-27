@@ -1,0 +1,69 @@
+# arXiv submission metadata for KakeyaLattice.
+# Copy-paste into the arXiv submission form fields at https://arxiv.org/submit
+# All fields correspond exactly to the form's field names.
+
+title: >-
+  KakeyaLattice: Nested-Lattice KV-Cache Compression with Kakeya-Style
+  Discrete Codebooks (D4 + E8 Joint Release)
+
+authors:
+  - name: Allen Li
+    affiliation: Individual researcher
+    email: AllenL329@gmail.com
+
+abstract: |
+  We introduce KakeyaLattice, a KV-cache compression codec for transformer LLMs
+  that constructs a discrete Kakeya cover over the direction sphere via a
+  Zamir-Feder nested-lattice quantiser. The paper covers two concrete
+  instantiations of a single codec family: a D4 nested lattice variant (v1.4)
+  and an E8 nested lattice variant (v1.5), sharing the same nine-step pipeline
+  (unit-norm factorisation, Sylvester-Hadamard rotation, per-vector adaptive
+  q_max, joint scale, lattice closest-point, clamp). The key design innovation
+  is adaptation to the measured non-Gaussian structure of real LLM KV
+  activations (sub-Gaussian body, per-coordinate heavy tail after rotation,
+  coordinate anisotropy up to 4.71x on Qwen3-4B post-QK-norm K); without these
+  levers the predicted shaping gain does not manifest. The lattice Voronoi
+  cells replace the cube cells of Z^N, trading G(Z^N) = 1/12 for
+  G(D_4) ~ 0.0766 or G(E_8) ~ 0.0717.
+
+  Measured results are live-vLLM on NVIDIA H200 under two protocols. Under
+  snapshot evaluation the D4 variant wins 12/12 on K-MSE (10-36% better)
+  across four open-source models at three near-matched bit tiers. The
+  theoretical G(D_4)/G(Z^4) ~ 0.919 shaping ratio is recovered to within ~1%
+  in three independent environments. Under in-forward rigorous evaluation
+  (n=32, 95% CI, no-boundary) the E8 variant reduces |delta-ppl| by 28-53%
+  across three deployable models at Q in {4, 10}, with +1.3 to +2.0 dB
+  per-layer K-MSE gain over D4 --- 4-6x the +0.29 dB theoretical minimum.
+  Long-context retrieval (Needle-in-a-Haystack at 16k) is preserved on
+  Qwen3-4B and Gemma-4-E4B.
+
+  Strict-GPU, no mock / simplification / fallback / overfit; bit-level
+  regression gated by a pinned sha256 frozen-parity test. Code, per-passage
+  JSON, four per-architecture attention hooks, and the multi-model / NIAH /
+  latency harnesses are released under Apache-2.0 at
+  https://github.com/FluffyAIcode/LLM-KV--Cache-compress.
+
+comments: >-
+  24 pages, 9 figures, 11 tables. Code, reports, and reproducibility commands
+  at https://github.com/FluffyAIcode/LLM-KV--Cache-compress (Apache-2.0).
+
+primary_category: cs.LG
+secondary_categories:
+  - cs.CL
+  - cs.IT
+  - cs.DS
+
+msc_class: 94A29, 68T50
+acm_class: "I.2.7; E.4"
+
+license: "CC BY 4.0"  # recommended for broad reuse; repo code stays Apache-2.0
+
+journal_ref: ""       # leave empty
+doi: ""               # leave empty
+
+# Suggested reviewers / endorsers (for cs.LG endorsement request, see endorsement_request.md)
+endorsement_hint: |-
+  First-time arXiv submitter in cs.LG requires endorsement. Typical endorsers:
+  any author of a cited LLM quantisation paper (SpinQuant, QuaRot, NestQuant,
+  TurboQuant, KVTC). The LaTeX bibliography already contains their contact
+  institutions. Send endorsement_request.md after registering on arXiv.

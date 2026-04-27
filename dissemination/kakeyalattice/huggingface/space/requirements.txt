@@ -1,0 +1,7 @@
+gradio>=4.44.0,<5.0
+numpy>=1.26
+pandas>=2.0
+torch>=2.2
+# Install KakeyaLattice codec directly from the repo's pure-Python subpackage.
+# When you publish a PyPI release, switch this to `kakeyalattice>=1.5.0`.
+kakeyalattice @ git+https://github.com/FluffyAIcode/LLM-KV--Cache-compress.git#subdirectory=kakeyalattice

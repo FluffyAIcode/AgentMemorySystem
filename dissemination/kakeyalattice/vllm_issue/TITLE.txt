@@ -1,0 +1,1 @@
+[Feature]: KakeyaLattice — D4/E8 nested-lattice KV cache compression as a vLLM plugin (v1.5, H200-validated)

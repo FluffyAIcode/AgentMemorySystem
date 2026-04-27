@@ -1,0 +1,24 @@
+{
+  "names": [
+    "kv-cache",
+    "kv-cache-compression",
+    "kv-cache-quantization",
+    "quantization",
+    "vllm",
+    "vllm-plugin",
+    "lattice-quantization",
+    "e8-lattice",
+    "d4-lattice",
+    "nested-lattice",
+    "llm-inference",
+    "long-context",
+    "vector-quantization",
+    "hadamard-transform",
+    "conway-sloane",
+    "llm",
+    "transformer",
+    "inference-optimization",
+    "memory-efficient",
+    "h200"
+  ]
+}
